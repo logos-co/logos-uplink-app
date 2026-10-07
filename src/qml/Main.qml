@@ -68,17 +68,28 @@ Rectangle {
         }
 
         // The node app signs on the user's approval; the shell brings them back here.
-        function requestSignature() {
+        // Used for the join and for the payout code.
+        function requestNodeSignature(onSigned, onFailed) {
             if (!d.canRequest()) {
-                d.backend.reportSignFailed("unavailable")
+                onFailed("unavailable")
                 return
             }
             logos.request("node.sign_message", d.backend.signRequest, function (res) {
                 if (res.ok)
-                    d.backend.completeEnroll(res.data.signature, res.data.public_key)
+                    onSigned(res.data.signature, res.data.public_key)
                 else
-                    d.backend.reportSignFailed(res.error)
+                    onFailed(res.error)
             })
+        }
+
+        function requestSignature() {
+            d.requestNodeSignature(function (sig, key) { d.backend.completeEnroll(sig, key) },
+                                   function (error) { d.backend.reportSignFailed(error) })
+        }
+
+        function requestPayoutSignature() {
+            d.requestNodeSignature(function (sig, key) { d.backend.completePayoutSignature(sig, key) },
+                                   function (error) { d.backend.reportPayoutSignFailed(error) })
         }
 
         // A hand-off: the shell opens the app, or offers to install it, and leaves the user there.
@@ -97,11 +108,6 @@ Rectangle {
             console.warn("Uplink: could not open", appName, ":", reason)
             d.launchFailedSeverity()
             toast.show(qsTr("Couldn't open the %1 app").arg(appName), hint)
-        }
-
-        function notYet(what) {
-            toast.severity = LogosNotice.Info
-            toast.show(what, qsTr("Coming next."))
         }
 
         function launchFailedSeverity() {
@@ -154,6 +160,7 @@ Rectangle {
         OverviewPage {
             network: d.backend ? d.backend.chainId : ""
             points: d.backend ? String(Number(d.backend.rewardBalance) + Number(d.backend.claimablePoints)) : "0"
+            cashedOut: d.backend ? String(Number(d.backend.lifetimePoints) - Number(d.backend.rewardBalance)) : "0"
             nodeIssue: d.backend ? d.backend.nodeIssue : UplinkUi.ModuleUnavailable
             nodeId: d.backend ? d.backend.nodeId : ""
             nodeActive: d.backend ? d.backend.nodeActive : false
@@ -161,8 +168,15 @@ Rectangle {
             referrals: d.backend ? d.backend.referrals : []
             referrerNode: d.backend ? d.backend.referrerNode : ""
             invitation: d.backend ? d.backend.invitation : ""
+            cashOutState: d.backend ? d.backend.cashOutState : UplinkUi.CashOutIdle
+            payoutCode: d.backend ? d.backend.payoutCode : ""
+            payoutPoints: d.backend ? d.backend.payoutPoints : ""
+            error: d.backend ? d.backend.lastError : ""
+            payoutFormUrl: d.backend ? d.backend.payoutFormUrl : ""
+            onCashOutRequested: d.backend.cashOutAll()
+            onSignAgainRequested: d.requestPayoutSignature()
+            onCashOutFinished: d.backend.finishCashOut()
             onLabelEdited: function (node, label) { d.backend.setReferralLabel(node, label) }
-            onClaimRequested: d.notYet(qsTr("Claim rewards"))
         }
     }
 
@@ -204,6 +218,11 @@ Rectangle {
                     d.showJoinedIfEnrolled()
                 break
             }
+        }
+
+        function onCashOutStateChanged() {
+            if (d.backend.cashOutState === UplinkUi.SigningCode)
+                d.requestPayoutSignature()
         }
 
         function onLastErrorChanged() {

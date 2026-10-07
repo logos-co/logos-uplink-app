@@ -182,6 +182,33 @@ Result<QList<Receipt>> MockReferralService::receipts(const QString& participant)
     return Result<QList<Receipt>>::success(m_accounts.value(participant).receipts);
 }
 
+QString MockReferralService::programAccount() { return hexId("mock-referral-program"); }
+
+// Stands in for #896's HKDF over the wallet's nullifier key: stable per receipt.
+QString MockReferralService::blindingFactor(const QString& participant, quint64 index)
+{
+    return hexId("blinding:" + participant.toUtf8() + ":" + QByteArray::number(index));
+}
+
+QString MockReferralService::receiptAddress(const QString& programAccount, const QString& node,
+                                            const QString& blindingFactor)
+{
+    return hexId("receipt:" + programAccount.toUtf8() + ":" + node.toUtf8() + ":" + blindingFactor.toUtf8());
+}
+
+Result<Opening> MockReferralService::opening(const QString& participant, quint64 index)
+{
+    const Account account = m_accounts.value(participant);
+    if (!account.registered || index >= quint64(account.receipts.size()))
+        return Result<Opening>::failure(QStringLiteral("no such receipt"));
+    Opening o;
+    o.programAccount = programAccount();
+    o.node = account.state.node;
+    o.blindingFactor = blindingFactor(participant, index);
+    o.account = account.receipts.at(int(index)).account;
+    return Result<Opening>::success(o);
+}
+
 Result<Status> MockReferralService::record(const QString& reference, Operation operation)
 {
     if (m_operations.contains(reference))
@@ -267,7 +294,8 @@ Status MockReferralService::settle(Operation& operation)
     case Kind::CashOut: {
         Receipt receipt;
         receipt.index = account.receipts.size();
-        receipt.account = nextId("receipt");
+        receipt.account = receiptAddress(programAccount(), account.state.node,
+                                         blindingFactor(operation.participant, receipt.index));
         receipt.points = account.state.rewardBalance;
         account.receipts << receipt;
         account.state.rewardBalance = QStringLiteral("0");

@@ -7,6 +7,7 @@
 #include <QVariantMap>
 
 #include "InvitationCode.h"
+#include "PayoutCode.h"
 #include "blockchain/BlockchainNodeService.h"
 #include "lez/LezReferralService.h"
 #include "mock/MockNodeService.h"
@@ -22,6 +23,11 @@ constexpr qint64 kSyncChunk = 100;   // blocks per step, as the LEZ Wallet app d
 // The `domain` the node signs the registration under. Placeholder until LEZ#896
 // and logos-blockchain-module#108 agree on one.
 const QString kRegisterDomain = QStringLiteral("lez-referral/register");
+// The domain for signing a payout code, so a join signature can never pass as one.
+const QString kPayoutDomain = QStringLiteral("lez-referral/payout");
+
+// TODO: replace with the real payout form's URL once it exists. This is the prototype's form.
+const QString kPayoutFormUrl = QStringLiteral("https://xalisher.github.io/lx-preview/web/");
 
 // Names the points account in the user's LEZ wallet; also how Uplink finds it again.
 const QString kIdentityLabel = QStringLiteral("Uplink points account");
@@ -86,6 +92,8 @@ UplinkBackend::UplinkBackend(QObject* parent)
     setNodeIssue(ModuleUnavailable);
     setWalletIssue(LezCoreUnavailable);
     setEnrolState(NoIdentity);
+    setCashOutState(CashOutIdle);
+    setPayoutFormUrl(kPayoutFormUrl);
     setInvitationCheck(InvitationEmpty);
     setClaimablePoints(QStringLiteral("0"));
     setRewardBalance(QStringLiteral("0"));
@@ -302,6 +310,7 @@ QString UplinkBackend::dataFile()
 void UplinkBackend::reconcileOperations()
 {
     bool changed = false;
+    QMap<QString, int> settled;   // acted on after the loop: the next step adds an operation
     for (auto it = m_operations.begin(); it != m_operations.end(); ++it) {
         if (it->status != OperationPending)
             continue;
@@ -310,11 +319,29 @@ void UplinkBackend::reconcileOperations()
             continue;
         it->status = toRep(status.value);
         changed = true;
+        settled.insert(it.key(), it->status);
         if (it.key() == m_registerReference && it->status == OperationRejected)
             setEnrolState(EnrolRejected);
     }
     if (changed)
         publishOperations();
+
+    if (settled.contains(m_collectReference)) {
+        const bool ok = settled.value(m_collectReference) == OperationSettled;
+        m_collectReference.clear();
+        if (ok)
+            startCashOut();
+        else
+            failCashOut(QStringLiteral("Collecting your points was rejected. Your node may not have been active this epoch."));
+    }
+    if (settled.contains(m_cashOutReference)) {
+        const bool ok = settled.value(m_cashOutReference) == OperationSettled;
+        m_cashOutReference.clear();
+        if (ok)
+            preparePayoutCode();
+        else
+            failCashOut(QStringLiteral("Cashing out was rejected."));
+    }
 }
 
 void UplinkBackend::createIdentity()
@@ -459,15 +486,25 @@ void UplinkBackend::reportSignFailed(QString error)
                                              : QStringLiteral("The node app could not sign (%1).").arg(error));
 }
 
-void UplinkBackend::claimPoints()
+// One action for the user: collect what's claimable, cash the whole balance out,
+// then turn the receipt's opening into the payout code. Each step waits for the
+// previous transaction to settle (reconcileOperations moves it on).
+void UplinkBackend::cashOutAll()
 {
     setLastError({});
-    if (enrolState() != Enrolled || claimablePoints().toULongLong() == 0) {
-        fail(QStringLiteral("Nothing to collect."));
+    if (enrolState() != Enrolled || cashOutState() != CashOutIdle)
         return;
-    }
     if (!nodeActive()) {
         fail(QStringLiteral("Your node isn't an active Blend core node this epoch, so you can't collect yet."));
+        return;
+    }
+    const bool claimable = claimablePoints().toULongLong() > 0;
+    if (!claimable && rewardBalance().toULongLong() == 0) {
+        fail(QStringLiteral("No points to cash out yet."));
+        return;
+    }
+    if (!claimable) {
+        startCashOut();
         return;
     }
     const auto notes = m_referral->notes(participantId());
@@ -479,18 +516,100 @@ void UplinkBackend::claimPoints()
     for (const referral::Note& note : notes.value)
         accounts << note.account;
     const QString reference = newReference();
-    submit(QStringLiteral("claim"), m_referral->submitClaim(reference, participantId(), accounts), reference);
-}
-
-void UplinkBackend::cashOut()
-{
-    setLastError({});
-    if (enrolState() != Enrolled || rewardBalance().toULongLong() == 0) {
-        fail(QStringLiteral("Nothing to cash out."));
+    const auto submitted = m_referral->submitClaim(reference, participantId(), accounts);
+    if (!submitted.ok()) {
+        failCashOut(submitted.error);
         return;
     }
+    m_collectReference = reference;
+    submit(QStringLiteral("claim"), submitted, reference);
+    setCashOutState(Collecting);
+}
+
+void UplinkBackend::startCashOut()
+{
     const QString reference = newReference();
-    submit(QStringLiteral("cash_out"), m_referral->cashOut(reference, participantId()), reference);
+    const auto submitted = m_referral->cashOut(reference, participantId());
+    if (!submitted.ok()) {
+        failCashOut(submitted.error);
+        return;
+    }
+    m_cashOutReference = reference;
+    submit(QStringLiteral("cash_out"), submitted, reference);
+    setCashOutState(CashingOut);
+}
+
+// The newest receipt is the one just made.
+void UplinkBackend::preparePayoutCode()
+{
+    setCashOutState(PreparingCode);
+    const auto receipts = m_referral->receipts(participantId());
+    if (!receipts.ok() || receipts.value.isEmpty()) {
+        failCashOut(receipts.ok() ? QStringLiteral("The cash-out receipt wasn't found.") : receipts.error);
+        return;
+    }
+    referral::Receipt newest = receipts.value.first();
+    for (const referral::Receipt& r : receipts.value)
+        if (r.index > newest.index)
+            newest = r;
+    const auto opening = m_referral->opening(participantId(), newest.index);
+    if (!opening.ok()) {
+        failCashOut(opening.error);
+        return;
+    }
+    setPayoutPoints(newest.points);
+    m_payoutOpening = opening.value;
+
+    // A mock node signs on the spot; a real one goes through the node app.
+    const QByteArray payload = payout_code::signedPayload(m_payoutOpening);
+    const auto signedNow = m_node->signWithoutPrompt(kPayoutDomain, payload);
+    if (signedNow.ok()) {
+        setPayoutCode(payout_code::encode(m_payoutOpening, QString::fromLatin1(signedNow.value.toHex())));
+        setCashOutState(CashOutDone);
+        return;
+    }
+    setSignRequest({
+        {QStringLiteral("domain"), kPayoutDomain},
+        {QStringLiteral("payload_hex"), QString::fromLatin1(payload.toHex())},
+    });
+    setCashOutState(SigningCode);
+}
+
+void UplinkBackend::completePayoutSignature(QString signatureHex, QString publicKeyHex)
+{
+    setLastError({});
+    if (cashOutState() != SigningCode)
+        return;
+    if (!nodeId().isEmpty() && publicKeyHex.compare(nodeId(), Qt::CaseInsensitive) != 0) {
+        fail(QStringLiteral("The signature is from a different node key."));
+        return;
+    }
+    setPayoutCode(payout_code::encode(m_payoutOpening, signatureHex));
+    setSignRequest({});
+    setCashOutState(CashOutDone);
+}
+
+// The points are already cashed out; only the signature is missing, so asking again retries.
+void UplinkBackend::reportPayoutSignFailed(QString error)
+{
+    fail(error == QLatin1String("cancelled") ? QStringLiteral("Signing was cancelled. Your points are cashed out; sign again to get your code.")
+                                             : QStringLiteral("The node app could not sign (%1). Your points are cashed out; sign again to get your code.").arg(error));
+}
+
+void UplinkBackend::failCashOut(const QString& error)
+{
+    m_collectReference.clear();
+    m_cashOutReference.clear();
+    setCashOutState(CashOutIdle);
+    fail(error);
+}
+
+void UplinkBackend::finishCashOut()
+{
+    m_payoutOpening = {};
+    setPayoutCode({});
+    setPayoutPoints({});
+    setCashOutState(CashOutIdle);
 }
 
 // Local only; an empty label removes it, so the node ID shows again.

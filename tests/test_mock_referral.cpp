@@ -8,6 +8,7 @@
 
 #include "ActivityLog.h"
 #include "InvitationCode.h"
+#include "PayoutCode.h"
 #include "mock/MockReferralService.h"
 
 using namespace referral;
@@ -221,4 +222,61 @@ LOGOS_TEST(activity_log_keeps_only_the_window_and_survives_a_restart) {
     LOGOS_ASSERT_EQ(again.lastEpoch(), quint32(40));
     LOGOS_ASSERT_EQ(again.window("me"), log.window("me"));
     LOGOS_ASSERT_EQ(ini.value("marks/me").toString().split(',').size(), ActivityLog::kWindow);
+}
+
+LOGOS_TEST(a_receipt_opens_into_a_payout_code) {
+    MockReferralService s;
+    const QString p = enrol(s, "node-a");
+    s.advanceEpoch();
+    claim(s, p);
+    settle(s, s.cashOut("c", p), "c");
+    LOGOS_ASSERT_FALSE(s.opening(p, 1).ok());              // only receipt 0 exists
+    const auto o = s.opening(p, 0);
+    LOGOS_ASSERT_TRUE(o.ok());
+    LOGOS_ASSERT_EQ(o.value.node, QString("node-a"));
+    LOGOS_ASSERT_EQ(o.value.blindingFactor.size(), 64);
+    const QString code = payout_code::encode(o.value, "ab12");
+    LOGOS_ASSERT_TRUE(code.startsWith("uplink-payout-v2:"));
+    LOGOS_ASSERT_EQ(payout_code::signature(code), QString("ab12"));
+    const referral::Opening back = payout_code::decode(code);
+    LOGOS_ASSERT_EQ(back.node, o.value.node);
+    LOGOS_ASSERT_EQ(back.blindingFactor, o.value.blindingFactor);
+    LOGOS_ASSERT_EQ(back.programAccount, o.value.programAccount);
+    LOGOS_ASSERT_EQ(payout_code::decode("nonsense").node, QString());
+}
+
+// What the payout side does with a code: recompute the receipt's address from it and
+// find the points there.
+LOGOS_TEST(a_payout_code_recomputes_to_its_receipt) {
+    MockReferralService s;
+    const QString p = enrol(s, "node-a");
+    for (int round = 0; round < 2; ++round) {
+        s.advanceEpoch();
+        claim(s, p);
+        const QString ref = "cash-" + QString::number(round);
+        settle(s, s.cashOut(ref, p), ref);
+    }
+    const QList<referral::Receipt> receipts = s.receipts(p).value;
+    LOGOS_ASSERT_EQ(receipts.size(), 2);
+    for (const referral::Receipt& r : receipts) {
+        const referral::Opening fromCode = payout_code::decode(payout_code::encode(s.opening(p, r.index).value, "00"));
+        LOGOS_ASSERT_EQ(MockReferralService::receiptAddress(fromCode.programAccount, fromCode.node,
+                                                            fromCode.blindingFactor), r.account);
+    }
+    LOGOS_ASSERT_NE(receipts.at(0).account, receipts.at(1).account);   // a fresh factor per receipt
+}
+
+// The node signs the opening under the payout domain, so a join signature can't pass for it.
+LOGOS_TEST(a_payout_signature_covers_the_opening_and_its_domain) {
+    MockNodeService node;
+    referral::Opening o;
+    o.programAccount = "p"; o.node = "n"; o.blindingFactor = "b";
+    const auto sign = [&](const QString& domain) {
+        return QString::fromLatin1(node.signWithoutPrompt(domain, payout_code::signedPayload(o)).value.toHex());
+    };
+    const QString payout = sign("lez-referral/payout");
+    LOGOS_ASSERT_EQ(payout.size(), 128);   // 64 bytes
+    LOGOS_ASSERT_NE(payout, sign("lez-referral/register"));
+    o.blindingFactor = "c";
+    LOGOS_ASSERT_NE(payout, sign("lez-referral/payout"));
 }

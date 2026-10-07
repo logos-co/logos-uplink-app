@@ -23,6 +23,7 @@ public:
     Result<QList<referral::Note>> notes(const QString& participant) override;
     Result<QString> claimable(const QString& participant) override;
     Result<QList<referral::Receipt>> receipts(const QString& participant) override;
+    Result<referral::Opening> opening(const QString& participant, quint64 index) override;
     Result<referral::Status> submitRegister(const QString& reference, const QString& participant) override;
     Result<referral::Status> submitClaim(const QString& reference, const QString& participant,
                                          const QStringList& noteAccounts) override;

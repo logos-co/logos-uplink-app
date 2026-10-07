@@ -18,6 +18,7 @@ Item {
 
     property string network: ""
     property string points: "0"
+    property string cashedOut: "0"   // every receipt so far
     property int nodeIssue: UplinkUi.ModuleUnavailable
     property string nodeId: ""
     property bool nodeActive: false
@@ -25,8 +26,15 @@ Item {
     property var referrals: []
     property string referrerNode: ""
     property string invitation: ""
+    property int cashOutState: UplinkUi.CashOutIdle
+    property string payoutCode: ""
+    property string payoutPoints: ""
+    property string error: ""
+    property string payoutFormUrl: ""
 
-    signal claimRequested()
+    signal cashOutRequested()
+    signal signAgainRequested()
+    signal cashOutFinished()
     signal labelEdited(string node, string label)
 
     onMyActivityChanged: d.rebuild()
@@ -143,18 +151,31 @@ Item {
                 }
             }
 
-            LogosText {
-                objectName: "uplink.pointsBalance"
-                text: qsTr("%1 points").arg(root.points)
-                font.pixelSize: Theme.typography.subtitleText
-                font.weight: Theme.typography.weightBold
-                color: Theme.palette.text
+            ColumnLayout {
+                spacing: 0
+
+                LogosText {
+                    objectName: "uplink.pointsBalance"
+                    Layout.alignment: Qt.AlignRight
+                    text: qsTr("%1 points").arg(root.points)
+                    font.pixelSize: Theme.typography.subtitleText
+                    font.weight: Theme.typography.weightBold
+                    color: Theme.palette.text
+                }
+                LogosText {
+                    objectName: "uplink.cashedOut"
+                    Layout.alignment: Qt.AlignRight
+                    visible: Number(root.cashedOut) > 0
+                    text: qsTr("%1 cashed out so far").arg(root.cashedOut)
+                    font.pixelSize: Theme.typography.secondaryText
+                    color: Theme.palette.textTertiary
+                }
             }
             LogosButton {
                 objectName: "uplink.claimRewardsButton"
                 font.pixelSize: Theme.typography.primaryText
                 text: qsTr("Claim rewards")
-                onClicked: root.claimRequested()
+                onClicked: claimDialog.open()
             }
             LogosButton {
                 objectName: "uplink.invitePeerButton"
@@ -398,6 +419,24 @@ Item {
         invitation: root.invitation
     }
 
+    ClaimDialog {
+        id: claimDialog
+
+        anchors.centerIn: parent
+        points: root.points
+        referralCount: root.referrals.length
+        nodeActive: root.nodeActive
+        cashOutState: root.cashOutState
+        payoutCode: root.payoutCode
+        payoutPoints: root.payoutPoints
+        error: root.error
+        formUrl: root.payoutFormUrl
+        onCashOutRequested: root.cashOutRequested()
+        onSignAgainRequested: root.signAgainRequested()
+        onInviteRequested: inviteDialog.open()
+        onFinished: root.cashOutFinished()
+    }
+
     // ---- Label dialog -------------------------------------------------------------
 
     LogosDialog {
@@ -411,6 +450,12 @@ Item {
         dim: true
         title: qsTr("Label this referral")
         headerItem.font.pixelSize: Theme.typography.subtitleText
+
+        // Ready to type: focus the field, cursor after any current label.
+        onOpened: {
+            labelField.textInput.forceActiveFocus()
+            labelField.textInput.cursorPosition = labelField.text.length
+        }
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
         contentItem: ColumnLayout {
