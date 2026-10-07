@@ -1,6 +1,9 @@
 #include "UplinkBackend.h"
 
 #include <QRandomGenerator>
+#include <QDir>
+#include <QSettings>
+#include <QStandardPaths>
 #include <QVariantMap>
 
 #include "InvitationCode.h"
@@ -210,6 +213,15 @@ void UplinkBackend::refreshReferral()
     if (invitation.ok())
         setInvitation(invitation_code::encode(invitation.value));
 
+    QStringList referralNodes = p.children.keys();
+    const auto notes = m_referral->notes(participantId());
+    if (notes.ok())
+        for (const referral::Note& note : notes.value)
+            if (note.kind == referral::Note::Child && !referralNodes.contains(note.node))
+                referralNodes << note.node;
+    recordActivity(registry.value, p.node, referralNodes);
+    setMyActivity(m_activity.window(p.node));
+
     QVariantList referrals;
     auto addReferral = [&](const QString& node, quint32 lastPaid, bool pending) {
         referrals << QVariantMap{
@@ -218,11 +230,11 @@ void UplinkBackend::refreshReferral()
             {QStringLiteral("activeThisEpoch"), registry.value.active.contains(node)},
             {QStringLiteral("lastPaidEpoch"), lastPaid},
             {QStringLiteral("pending"), pending},   // announced, not yet taken in by a claim
+            {QStringLiteral("activity"), m_activity.window(node)},
         };
     };
     for (auto it = p.children.cbegin(); it != p.children.cend(); ++it)
         addReferral(it.key(), it.value(), false);
-    const auto notes = m_referral->notes(participantId());
     if (notes.ok())
         for (const referral::Note& note : notes.value)
             if (note.kind == referral::Note::Child && !p.children.contains(note.node))
@@ -250,6 +262,41 @@ void UplinkBackend::refreshReferral()
     }
     setReceipts(receipts);
     setLifetimePoints(QString::number(lifetime));
+}
+
+// The program only holds the latest published epoch, so each one is noted as it appears,
+// for this node and every direct referral, in an INI file (one section per points account).
+void UplinkBackend::recordActivity(const referral::Registry& registry, const QString& myNode,
+                                   const QStringList& referralNodes)
+{
+    QSettings ini(dataFile(), QSettings::IniFormat);
+    if (m_activityOwner != participantId()) {
+        ini.beginGroup(participantId() + QStringLiteral("/activity"));
+        m_activity = ActivityLog::readFrom(ini);
+        ini.endGroup();
+        ini.beginGroup(participantId() + QStringLiteral("/labels"));
+        m_labels.clear();
+        for (const QString& node : ini.childKeys())
+            m_labels.insert(node, ini.value(node).toString());
+        ini.endGroup();
+        m_activityOwner = participantId();
+    }
+    if (registry.epoch != 0   // nothing published yet
+            && m_activity.record(registry.epoch, QStringList{myNode} + referralNodes, registry.active)) {
+        ini.beginGroup(participantId() + QStringLiteral("/activity"));
+        m_activity.writeTo(ini);
+        ini.endGroup();
+    }
+}
+
+// Uplink's own data — activity seen and referral labels — one INI file, a section per
+// points account. None of it comes from the program.
+QString UplinkBackend::dataFile()
+{
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
+                        + QStringLiteral("/Logos/Uplink");
+    QDir().mkpath(dir);
+    return dir + QStringLiteral("/uplink.ini");
 }
 
 void UplinkBackend::reconcileOperations()
@@ -446,9 +493,20 @@ void UplinkBackend::cashOut()
     submit(QStringLiteral("cash_out"), m_referral->cashOut(reference, participantId()), reference);
 }
 
+// Local only; an empty label removes it, so the node ID shows again.
 void UplinkBackend::setReferralLabel(QString node, QString label)
 {
-    m_labels.insert(node, label.trimmed());
+    label = label.trimmed();
+    QSettings ini(dataFile(), QSettings::IniFormat);
+    ini.beginGroup(participantId() + QStringLiteral("/labels"));
+    if (label.isEmpty()) {
+        m_labels.remove(node);
+        ini.remove(node);
+    } else {
+        m_labels.insert(node, label);
+        ini.setValue(node, label);
+    }
+    ini.endGroup();
     refreshReferral();
 }
 

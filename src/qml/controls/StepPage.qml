@@ -16,8 +16,7 @@ LogosScrollView {
         ColumnLayout {
             id: column
 
-            anchors.horizontalCenter: parent.horizontalCenter
-            width: Math.min(parent.width, 660)
+            width: parent.width
             spacing: Theme.spacing.large
         }
     }

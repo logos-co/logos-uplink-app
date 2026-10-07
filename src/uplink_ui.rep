@@ -83,8 +83,9 @@ class UplinkUi
     PROP(QVariantMap signRequest READONLY)    // node.sign_message params while AwaitingSignature
     PROP(int epoch READONLY)
     PROP(int activeCount READONLY)
+    PROP(QVariantList myActivity READONLY)    // last 16 published epochs, oldest first: 1 active, 0 not, -1 unknown
     PROP(bool nodeActive READONLY)            // your own node is in this epoch's active set; Collect needs it
-    PROP(QVariantList referrals READONLY)     // [{node, label, activeThisEpoch, lastPaidEpoch, pending}]
+    PROP(QVariantList referrals READONLY)     // [{node, label, activeThisEpoch, lastPaidEpoch, pending, activity}]; activity as myActivity, -2 = not yet a referral
     PROP(QString claimablePoints READONLY)
     PROP(QString rewardBalance READONLY)      // collected, not yet cashed out
     PROP(QString lifetimePoints READONLY)     // rewardBalance + every cash-out

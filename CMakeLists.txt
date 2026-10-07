@@ -14,6 +14,7 @@ logos_module(
         src/UplinkBackend.h
         src/UplinkBackend.cpp
         src/InvitationCode.h
+        src/ActivityLog.h
         src/interfaces/Result.h
         src/interfaces/ReferralService.h
         src/interfaces/NodeService.h

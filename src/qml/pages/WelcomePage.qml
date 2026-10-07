@@ -4,6 +4,8 @@ import QtQuick.Layouts
 import Logos.Theme
 import Logos.Controls
 
+import "../controls"
+
 Item {
     id: root
 
@@ -26,22 +28,9 @@ Item {
             color: Theme.palette.text
         }
 
-        Rectangle {
+        NetworkTag {
             Layout.alignment: Qt.AlignHCenter
-            visible: root.network !== ""
-            implicitWidth: tag.implicitWidth + 2 * Theme.spacing.medium
-            implicitHeight: tag.implicitHeight + Theme.spacing.tiny * 2
-            color: Theme.palette.backgroundTertiary
-            border.color: Theme.palette.borderSecondary
-            radius: Theme.spacing.radiusPill
-
-            LogosText {
-                id: tag
-                anchors.centerIn: parent
-                text: qsTr("testnet %1").arg(root.network)
-                font.pixelSize: Theme.typography.secondaryText
-                color: Theme.palette.textTertiary
-            }
+            network: root.network
         }
 
         LogosText {

@@ -95,7 +95,17 @@ Rectangle {
 
         function launchFailed(appName, hint, reason) {
             console.warn("Uplink: could not open", appName, ":", reason)
+            d.launchFailedSeverity()
             toast.show(qsTr("Couldn't open the %1 app").arg(appName), hint)
+        }
+
+        function notYet(what) {
+            toast.severity = LogosNotice.Info
+            toast.show(what, qsTr("Coming next."))
+        }
+
+        function launchFailedSeverity() {
+            toast.severity = LogosNotice.Error
         }
 
         function canRequest() {
@@ -141,7 +151,18 @@ Rectangle {
             onFinished: pages.currentIndex = d.overviewPage
         }
 
-        OverviewPage {}
+        OverviewPage {
+            network: d.backend ? d.backend.chainId : ""
+            points: d.backend ? String(Number(d.backend.rewardBalance) + Number(d.backend.claimablePoints)) : "0"
+            nodeIssue: d.backend ? d.backend.nodeIssue : UplinkUi.ModuleUnavailable
+            nodeId: d.backend ? d.backend.nodeId : ""
+            nodeActive: d.backend ? d.backend.nodeActive : false
+            myActivity: d.backend ? d.backend.myActivity : []
+            referrals: d.backend ? d.backend.referrals : []
+            onLabelEdited: function (node, label) { d.backend.setReferralLabel(node, label) }
+            onClaimRequested: d.notYet(qsTr("Claim rewards"))
+            onInviteRequested: d.notYet(qsTr("Invite peer"))
+        }
     }
 
     LogosToast {
