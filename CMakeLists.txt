@@ -13,4 +13,17 @@ logos_module(
     SOURCES
         src/UplinkBackend.h
         src/UplinkBackend.cpp
+        src/interfaces/Result.h
+        src/interfaces/ReferralService.h
+        src/interfaces/NodeService.h
+        src/lez/LezReferralService.h
+        src/lez/LezReferralService.cpp
+        src/blockchain/BlockchainNodeService.h
+        src/blockchain/BlockchainNodeService.cpp
+        src/mock/MockReferralService.h
+        src/mock/MockReferralService.cpp
+        src/mock/MockNodeService.h
+        src/mock/MockNodeService.cpp
+    INCLUDE_DIRS
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
