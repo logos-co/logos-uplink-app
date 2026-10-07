@@ -36,3 +36,9 @@ earn points while the nodes they brought in do real work on the network.
 | [LEZ referral program](https://github.com/logos-blockchain/logos-execution-zone/pull/896) | Registration, points, claims, cash-out | Open draft PR |
 | `lez_core` ([logos-execution-zone-module](https://github.com/logos-blockchain/logos-execution-zone-module)) | Access to the referral program from Basecamp | Needs referral calls once the PR lands |
 | `blockchain_module` ([logos-blockchain-module](https://github.com/logos-blockchain/logos-blockchain-module)) | Node status, Blend core role, signing with the node key | Status available; signing tracked in [#108](https://github.com/logos-blockchain/logos-blockchain-module/issues/108) |
+
+## Build
+
+```bash
+nix build
+```

@@ -1,0 +1,4 @@
+class UplinkUi
+{
+    PROP(bool ready READONLY)
+}

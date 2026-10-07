@@ -1,0 +1,32 @@
+{
+  "name": "uplink_ui",
+  "display_name": "Uplink",
+  "version": "0.1.0",
+  "type": "ui_qml",
+  "interface": "universal",
+  "category": "blockchain",
+  "description": "Uplink: the Logos node referral programme",
+  "author": "Logos",
+  "main": "uplink_ui_plugin",
+  "view": "qml/Main.qml",
+  "dependencies": [
+    {"name": "lez_core", "version": ">=0.5.0"},
+    {"name": "blockchain_module", "version": ">=0.3.0"}
+  ],
+  "codegen": {
+    "rep": "src/uplink_ui.rep",
+    "backend_class": "UplinkBackend",
+    "backend_header": "UplinkBackend.h"
+  },
+  "nix": {
+    "packages": {
+      "build": [],
+      "runtime": ["qt6.qtdeclarative", "zstd"]
+    },
+    "external_libraries": [],
+    "cmake": {
+      "find_packages": [],
+      "extra_sources": []
+    }
+  }
+}
