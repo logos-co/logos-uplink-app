@@ -19,6 +19,7 @@ LogosDialog {
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     bottomPadding: 0
     title: qsTr("Program terms")
+    headerItem.font.pixelSize: Theme.typography.subtitleText   // the prototype's dialog title, not the 14 px default
 
     onOpened: terms.reset()
 
