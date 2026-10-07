@@ -4,7 +4,8 @@ import QtQuick.Layouts
 import Logos.Theme
 import Logos.Controls
 
-// Placeholder for the step after joining.
+import "../controls"
+
 Item {
     id: root
 
@@ -14,65 +15,60 @@ Item {
     property string accountLabel: ""
     property string accountAddress: ""
 
+    signal finished()
+
+    QtObject {
+        id: d
+
+        function shortId(id) {
+            return id.length > 20 ? id.slice(0, 10) + "…" + id.slice(-8) : id
+        }
+    }
+
     ColumnLayout {
         anchors.centerIn: parent
-        width: Math.min(parent.width - 2 * Theme.spacing.xlarge, 620)
-        spacing: Theme.spacing.medium
+        width: Math.min(parent.width - 2 * Theme.spacing.xlarge, 660)
+        spacing: Theme.spacing.large
 
         LogosText {
-            Layout.fillWidth: true
+            Layout.alignment: Qt.AlignHCenter
             text: qsTr("You’re in")
-            font.pixelSize: Theme.typography.panelTitleText
+            font.pixelSize: Theme.typography.titleText
             font.weight: Theme.typography.weightBold
             color: Theme.palette.text
         }
 
         LogosText {
-            Layout.fillWidth: true
-            wrapMode: Text.WrapAnywhere
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: Math.min(parent.width, 580)
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            textFormat: Text.StyledText
             text: root.referrerNode !== ""
-                  ? qsTr("Your position is sealed under %1.").arg(root.referrerNode)
-                  : qsTr("You’re enrolled as a root. Invite people to grow your own tree.")
+                  ? qsTr("<b>Your position is sealed.</b> You joined under your inviter. It can’t be changed, and nobody, including us, can read who invited you.")
+                  : qsTr("<b>You’re enrolled as a root.</b> You continued without a referral — invite people to grow your own tree.")
             font.pixelSize: Theme.typography.primaryText
             color: Theme.palette.textSecondary
         }
 
-        LogosFrame {
-            Layout.fillWidth: true
+        InfoCard {
+            objectName: "uplink.pointsAccount"
             Layout.topMargin: Theme.spacing.small
             visible: root.accountAddress !== ""
-            padding: Theme.spacing.large
-            backgroundColor: Theme.palette.backgroundTertiary
-            borderColor: Theme.palette.borderSecondary
-            radius: Theme.spacing.radiusLarge
+            title: root.accountLabel.toUpperCase()
+            detail: d.shortId(root.accountAddress)
+            copyText: root.accountAddress
+            note: qsTr("A private account in your LEZ wallet. Your points are kept here; only you can see them.")
+        }
 
-            ColumnLayout {
-                anchors.fill: parent
-                spacing: Theme.spacing.small
-
-                LogosText {
-                    text: root.accountLabel.toUpperCase()
-                    font.pixelSize: Theme.typography.secondaryText
-                    font.letterSpacing: 0.6
-                    color: Theme.palette.textSecondary
-                }
-                LogosCopyableText {
-                    objectName: "uplink.pointsAccount"
-                    Layout.fillWidth: true
-                    text: root.accountAddress.length > 20
-                          ? root.accountAddress.slice(0, 10) + "…" + root.accountAddress.slice(-8)
-                          : root.accountAddress
-                    copyText: root.accountAddress
-                    textColor: Theme.palette.textSecondary
-                }
-                LogosText {
-                    Layout.fillWidth: true
-                    wrapMode: Text.WordWrap
-                    text: qsTr("A private account in your LEZ wallet. Your points are kept here; only you can see them.")
-                    font.pixelSize: Theme.typography.secondaryText
-                    color: Theme.palette.textTertiary
-                }
-            }
+        LogosButton {
+            objectName: "uplink.finishButton"
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: Theme.spacing.small
+            variant: LogosButton.Variant.Primary
+            font.pixelSize: Theme.typography.primaryText
+            text: qsTr("Finish")
+            onClicked: root.finished()
         }
     }
 }
