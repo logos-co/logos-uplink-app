@@ -9,6 +9,7 @@
   "author": "Logos",
   "main": "uplink_ui_plugin",
   "view": "qml/Main.qml",
+  "icon": "src/icons/uplink.png",
   "dependencies": [
     {"name": "lez_core", "version": ">=0.5.0"},
     {"name": "blockchain_module", "version": ">=0.3.0"}
