@@ -37,8 +37,56 @@ earn points while the nodes they brought in do real work on the network.
 | `lez_core` ([logos-execution-zone-module](https://github.com/logos-blockchain/logos-execution-zone-module)) | Access to the referral program from Basecamp | Needs referral calls once the PR lands |
 | `blockchain_module` ([logos-blockchain-module](https://github.com/logos-blockchain/logos-blockchain-module)) | Node status, Blend core role, signing with the node key | Status available; signing tracked in [#108](https://github.com/logos-blockchain/logos-blockchain-module/issues/108) |
 
-## Build
+## Development
+
+A `ui_qml` module: a QML view plus a C++ backend (`UplinkBackend`), with the contract in
+`src/uplink_ui.rep`.
+
+### Layout
+
+```
+src/uplink_ui.rep           the contract the view binds to
+src/UplinkBackend.*         app state: participant, operation refs, labels, points totals
+src/interfaces/             interfaces
+  ReferralService.h           the LEZ referral wallet facade (logos-execution-zone#896), 1:1
+  NodeService.h               the local node: status, Blend role, signing
+src/lez/                    ReferralService over lez_core
+src/blockchain/             NodeService over blockchain_module
+src/mock/                   in-memory implementations of both
+src/qml/Main.qml            placeholder view
+tests/                      the mock follows the LEZ program's rules
+```
+
+### Real vs mock
+
+Both sides are real by default. Set at launch, read once:
+
+| Variable | Values | Effect |
+|---|---|---|
+| `UPLINK_BACKEND` | `mock`, `real` | Both sides. When set, the two below are ignored. |
+| `UPLINK_LEZ` | `mock`, `mock:no_wallet`, `real` | Referral side. `real` uses lez_core: the identity's label and address work today; referral calls fail until lez_core has them (needs #896 merged + wallet-ffi bindings + lez_core methods), and so does the wallet-open check. `mock:no_wallet` makes the mock report that no wallet is open. |
+| `UPLINK_NODE` | `mock`, `mock:<issue>`, `real` | Node side. `real` uses blockchain_module: status works today (`get_cryptarchia_info`, `get_chain_id`, `blend_info`); the node's `provider_id` waits on logos-blockchain-module#108. Signing is not done here: the node app signs on the user's approval, via the `node.sign_message` intent. `mock:<issue>` makes the mock node report `module`, `not_running`, `bootstrapping`, `not_core` or `no_peers`. |
 
 ```bash
-nix build
+nix run .                              # everything real
+UPLINK_BACKEND=mock nix run .          # everything mock
+UPLINK_LEZ=mock nix run .              # real node, mock referral programme
+UPLINK_NODE=mock nix run .             # mock node, real referral programme
+UPLINK_NODE=mock:not_core nix run .    # mock node that is not a core node
+```
+
+The mock referral programme follows #896 except for one assumption: points **accrue**. A claim pays
+for every epoch a referral was active since you last claimed. #896 currently pays only the current
+epoch, so epochs you don't claim in are lost.
+
+It settles operations on the next poll (5 s), seeds three children when you
+register, and publishes a new epoch every 30 s. Invitations look like
+`uplink-mock-invitation:<node>`; the only registered node at start is
+`MockReferralService::inviterNode()`.
+
+### Build and test
+
+```bash
+nix build          # the plugin
+nix flake check    # unit tests
 ```

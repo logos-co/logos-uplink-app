@@ -1,4 +1,92 @@
+#include <QVariantList>
+#include <QVariantMap>
+
 class UplinkUi
 {
-    PROP(bool ready READONLY)
+    // ---- App -------------------------------------------------------------
+
+    PROP(QString lastError READONLY)
+
+    // Re-reads the node, settles pending operations, re-reads the referral state.
+    SLOT(void refresh())
+
+    // ---- Node: blockchain_module -----------------------------------------
+
+    // What stops the node from taking part, in the order the user should fix it:
+    // blockchain_module missing; node stopped; not Online yet; Edge (no Blend
+    // declaration); core with no healthy Blend peers (port unreachable?); core, but
+    // the module can't report the provider_id yet (logos-blockchain-module 108).
+    ENUM NodeIssue {
+        NoIssue           = 0,
+        ModuleUnavailable = 1,
+        NodeNotRunning    = 2,
+        NodeBootstrapping = 3,
+        NotCoreNode       = 4,
+        NoBlendPeers      = 5,
+        NodeIdUnavailable = 6
+    }
+
+    PROP(int nodeIssue READONLY)
+    PROP(QString nodeIssueDetail READONLY)
+    PROP(QString nodeMode READONLY)           // Online | Bootstrapping | NotStarted | ""
+    PROP(bool nodeCore READONLY)
+    PROP(int healthyBlendPeers READONLY)
+    PROP(QString nodeId READONLY)             // BlendSigning provider_id; "" until known
+    PROP(QString chainId READONLY)
+
+    // ---- Referral programme: lez_core ------------------------------------
+
+    // NoWalletOpen: QML sends basecamp.apps.launch {app: "lez_wallet_ui"}; the shell offers an install if it's missing.
+    ENUM WalletIssue {
+        WalletReady        = 0,
+        LezCoreUnavailable = 1,
+        NoWalletOpen       = 2
+    }
+
+    ENUM EnrolState {
+        NoIdentity        = 0,
+        IdentityCreated   = 1,
+        Invited           = 2,
+        AwaitingSignature = 3,
+        Enrolling         = 4,
+        Enrolled          = 5,
+        EnrolRejected     = 6
+    }
+
+    ENUM OperationStatus {
+        OperationPending  = 0,
+        OperationSettled  = 1,
+        OperationRejected = 2
+    }
+
+    PROP(int walletIssue READONLY)
+    PROP(QString walletIssueDetail READONLY)
+    PROP(int syncedBlock READONLY)
+    PROP(int chainHeight READONLY)
+
+    PROP(int enrolState READONLY)
+    PROP(QString participantId READONLY)
+    PROP(QString identityLabel READONLY)      // the identity account's name in the LEZ Wallet app
+    PROP(QString identityAddress READONLY)    // base58, as the LEZ Wallet app shows it
+    PROP(QString referrerNode READONLY)       // "" = own tree
+    PROP(QString invitation READONLY)         // blob to hand to people you refer; "" until enrolled
+    PROP(QVariantMap signRequest READONLY)    // node.sign_message params while AwaitingSignature
+    PROP(int epoch READONLY)
+    PROP(int activeCount READONLY)
+    PROP(QVariantList referrals READONLY)     // [{node, label, activeThisEpoch, lastPaidEpoch, pending}]
+    PROP(QString claimablePoints READONLY)
+    PROP(QString rewardBalance READONLY)      // collected, not yet cashed out
+    PROP(QString lifetimePoints READONLY)     // rewardBalance + every cash-out
+    PROP(QVariantList receipts READONLY)      // [{index, account, points}]
+    PROP(QVariantList operations READONLY)    // [{ref, kind, status}]
+
+    SLOT(void createIdentity())
+    SLOT(void joinUnder(QString invitationBlob))
+    // prepareEnroll -> QML requests node.sign_message with signRequest -> completeEnroll or reportSignFailed
+    SLOT(void prepareEnroll())
+    SLOT(void completeEnroll(QString signatureHex, QString publicKeyHex))
+    SLOT(void reportSignFailed(QString error))
+    SLOT(void claimPoints())
+    SLOT(void cashOut())
+    SLOT(void setReferralLabel(QString node, QString label))
 }

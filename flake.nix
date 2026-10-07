@@ -13,9 +13,22 @@
   };
 
   outputs = inputs@{ logos-module-builder, ... }:
-    logos-module-builder.lib.mkLogosQmlModule {
-      src = ./.;
-      configFile = ./metadata.json;
-      flakeInputs = inputs;
+    let
+      shared = {
+        src = ./.;
+        configFile = ./metadata.json;
+        flakeInputs = inputs;
+      };
+
+      module = logos-module-builder.lib.mkLogosQmlModule shared;
+
+      # mkLogosQmlModule only runs tests/*.mjs; the mock's rules are C++ unit tests.
+      unitTests = logos-module-builder.lib.mkLogosModuleTests
+        (shared // { testDir = ./tests; });
+    in
+    module // {
+      checks = builtins.mapAttrs
+        (system: tests: ((module.checks or {}).${system} or {}) // tests)
+        unitTests;
     };
 }
