@@ -1,13 +1,16 @@
 #include "mock/MockReferralService.h"
 
 #include <QCryptographicHash>
+#include <QJsonDocument>
+#include <QJsonObject>
+
+#include "InvitationCode.h"
 
 using namespace referral;
 
 namespace {
 
 constexpr qint64 kEpochMs = 30000;
-const QString kInvitationPrefix = QStringLiteral("uplink-mock-invitation:");
 
 QString hexId(const QByteArray& seed)
 {
@@ -55,7 +58,16 @@ MockReferralService::MockReferralService(bool walletOpen)
 
 QString MockReferralService::inviterNode() { return hexId("mock-inviter"); }
 
-QString MockReferralService::invitationFor(const QString& node) { return kInvitationPrefix + node; }
+// An Invitation blob as lez_core is expected to hand it out: #896's field names, hex keys.
+QString MockReferralService::invitationFor(const QString& node)
+{
+    const QJsonObject blob{
+        {QStringLiteral("parent_node"), node},
+        {QStringLiteral("npk"), hexId("npk:" + node.toUtf8())},
+        {QStringLiteral("vpk"), hexId("vpk:" + node.toUtf8())},
+    };
+    return QString::fromUtf8(QJsonDocument(blob).toJson(QJsonDocument::Compact));
+}
 
 QString MockReferralService::nextId(const char* tag)
 {
@@ -90,9 +102,9 @@ Result<QString> MockReferralService::importInvitation(const QString& participant
 {
     if (!m_accounts.contains(participant))
         return Result<QString>::failure(QStringLiteral("unknown participant"));
-    if (!blob.startsWith(kInvitationPrefix))
+    const QString parent = invitation_code::inviterNode(blob);
+    if (parent.isEmpty())
         return Result<QString>::failure(QStringLiteral("not an invitation"));
-    const QString parent = blob.mid(kInvitationPrefix.size());
     m_accounts[participant].invitedBy = parent;
     return Result<QString>::success(parent);
 }

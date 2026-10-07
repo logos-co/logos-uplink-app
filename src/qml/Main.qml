@@ -120,6 +120,9 @@ Rectangle {
                           ? d.backend.walletIssueDetail : ""
             syncedBlock: d.backend ? d.backend.syncedBlock : 0
             chainHeight: d.backend ? d.backend.chainHeight : 0
+            invitationCheck: d.backend ? d.backend.invitationCheck : UplinkUi.InvitationEmpty
+            invitationInviter: d.backend ? d.backend.invitationInviter : ""
+            onInvitationEdited: function (text) { d.backend.checkInvitation(text) }
             enrolState: d.backend ? d.backend.enrolState : UplinkUi.IdentityCreated
             error: d.backend ? d.backend.lastError : ""
             onImportAndSignRequested: function (invitation) { d.startJoin(invitation) }

@@ -3,6 +3,7 @@
 #include <QRandomGenerator>
 #include <QVariantMap>
 
+#include "InvitationCode.h"
 #include "blockchain/BlockchainNodeService.h"
 #include "lez/LezReferralService.h"
 #include "mock/MockNodeService.h"
@@ -82,6 +83,7 @@ UplinkBackend::UplinkBackend(QObject* parent)
     setNodeIssue(ModuleUnavailable);
     setWalletIssue(LezCoreUnavailable);
     setEnrolState(NoIdentity);
+    setInvitationCheck(InvitationEmpty);
     setClaimablePoints(QStringLiteral("0"));
     setRewardBalance(QStringLiteral("0"));
     setLifetimePoints(QStringLiteral("0"));
@@ -206,7 +208,7 @@ void UplinkBackend::refreshReferral()
 
     const auto invitation = m_referral->invitation(participantId(), p.node);
     if (invitation.ok())
-        setInvitation(invitation.value);
+        setInvitation(invitation_code::encode(invitation.value));
 
     QVariantList referrals;
     auto addReferral = [&](const QString& node, quint32 lastPaid, bool pending) {
@@ -291,14 +293,45 @@ void UplinkBackend::createIdentity()
     showIdentity();
 }
 
-void UplinkBackend::joinUnder(QString invitationBlob)
+void UplinkBackend::checkInvitation(QString code)
+{
+    if (code.trimmed().isEmpty()) {
+        setInvitationInviter({});
+        setInvitationCheck(InvitationEmpty);
+        return;
+    }
+    const QString inviter = invitation_code::inviterNode(invitation_code::decode(code));
+    setInvitationInviter(inviter);
+    if (inviter.isEmpty()) {
+        setInvitationCheck(InvitationInvalid);
+        return;
+    }
+    if (!nodeId().isEmpty() && inviter.compare(nodeId(), Qt::CaseInsensitive) == 0) {
+        setInvitationCheck(InvitationOwn);
+        return;
+    }
+    // Only a registered node can be a referrer. If the registry can't be read, don't block on it.
+    const auto registry = m_referral->registry();
+    if (registry.ok() && !registry.value.nodes.contains(inviter, Qt::CaseInsensitive)) {
+        setInvitationCheck(InviterNotJoined);
+        return;
+    }
+    setInvitationCheck(InvitationOk);
+}
+
+void UplinkBackend::joinUnder(QString code)
 {
     setLastError({});
     if (participantId().isEmpty()) {
         fail(QStringLiteral("Create an identity first."));
         return;
     }
-    const auto parent = m_referral->importInvitation(participantId(), invitationBlob.trimmed());
+    const QString blob = invitation_code::decode(code);
+    if (blob.isEmpty()) {
+        fail(QStringLiteral("That doesn't look like an invitation code."));
+        return;
+    }
+    const auto parent = m_referral->importInvitation(participantId(), blob);
     if (!parent.ok()) {
         fail(parent.error);
         return;
