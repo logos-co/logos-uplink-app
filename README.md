@@ -64,7 +64,7 @@ Both sides are real by default. Set at launch, read once:
 | Variable | Values | Effect |
 |---|---|---|
 | `UPLINK_BACKEND` | `mock`, `real` | Both sides. When set, the two below are ignored. |
-| `UPLINK_LEZ` | `mock`, `mock:no_wallet`, `real` | Referral side. `real` uses lez_core: the identity's label and address work today; referral calls fail until lez_core has them (needs #896 merged + wallet-ffi bindings + lez_core methods), and so does the wallet-open check. `mock:no_wallet` makes the mock report that no wallet is open. |
+| `UPLINK_LEZ` | `mock`, `mock:no_wallet`, `real` | Referral side. `real` uses lez_core: the wallet check, the identity's label and address, and sync work today; referral calls fail until lez_core has them (needs #896 merged + wallet-ffi bindings + lez_core methods). `mock:no_wallet` makes the mock report that no wallet is open. |
 | `UPLINK_NODE` | `mock`, `mock:<issue>`, `real` | Node side. `real` uses blockchain_module: status works today (`get_cryptarchia_info`, `get_chain_id`, `blend_info`); the node's `provider_id` waits on logos-blockchain-module#108. Signing is not done here: the node app signs on the user's approval, via the `node.sign_message` intent. `mock:<issue>` makes the mock node report `module`, `not_running`, `bootstrapping`, `not_core` or `no_peers`. |
 
 ```bash
