@@ -14,8 +14,9 @@ QString hexId(const QByteArray& seed)
     return QString::fromLatin1(QCryptographicHash::hash(seed, QCryptographicHash::Sha256).toHex());
 }
 
-// Participant::claim, with accrual: registers new children, pays each child for
-// every epoch it was active since it was last paid, and adds every credit.
+// Participant::claim, with the assumed rules: registers new children, pays each
+// child for every epoch since it was last paid in which it AND your own node were
+// active, and adds every credit.
 quint64 applyClaim(Participant& p, quint32 epoch, const QMap<quint32, QStringList>& history,
                    const QList<Note>& notes)
 {
@@ -28,7 +29,7 @@ quint64 applyClaim(Participant& p, quint32 epoch, const QMap<quint32, QStringLis
     }
     for (auto it = p.children.begin(); it != p.children.end(); ++it) {
         for (quint32 e = it.value() + 1; e <= epoch; ++e)
-            if (history.value(e).contains(it.key()))
+            if (history.value(e).contains(it.key()) && history.value(e).contains(p.node))
                 ++total;
         it.value() = epoch;
     }
@@ -237,6 +238,8 @@ Status MockReferralService::settle(Operation& operation)
         return Status::Settled;
     }
     case Kind::Claim: {
+        if (!m_registry.active.contains(account.state.node))
+            return Status::Rejected;
         QList<Note> consumed;
         for (const QString& id : operation.notes) {
             if (!m_notes.contains(id))
@@ -274,6 +277,10 @@ void MockReferralService::advanceEpoch()
     for (int i = 0; i < m_children.size(); ++i)
         if ((m_registry.epoch + i) % 3 != 0)
             m_registry.active << m_children[i];
+    if (m_registry.epoch % 4 != 0)
+        for (const Account& account : m_accounts)
+            if (account.registered)
+                m_registry.active << account.state.node;
     m_activeHistory.insert(m_registry.epoch, m_registry.active);
     if (m_registry.epoch % 2 != 0)
         return;

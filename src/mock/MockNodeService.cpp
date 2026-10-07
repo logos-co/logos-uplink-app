@@ -47,7 +47,6 @@ node::Status MockNodeService::status()
     s.chainId = QStringLiteral("mock-testnet");
     s.core = m_issue != Issue::NotCore;
     s.healthyBlendPeers = s.core && m_issue != Issue::NoBlendPeers ? 4 : 0;
-    if (m_issue == Issue::None)
-        s.nodeId = kNodeId;
+    s.nodeId = kNodeId;
     return s;
 }
