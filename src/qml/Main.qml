@@ -30,6 +30,10 @@ Rectangle {
                 walletSetup.open()
                 return
             }
+            termsDialog.open()
+        }
+
+        function createIdentity() {
             d.creatingIdentity = true
             d.backend.createIdentity()
         }
@@ -80,6 +84,12 @@ Rectangle {
         issue: d.backend ? d.backend.walletIssue : UplinkUi.LezCoreUnavailable
         detail: d.backend ? d.backend.walletIssueDetail : ""
         onOpenWalletRequested: d.openLezWallet()
+    }
+
+    TermsDialog {
+        id: termsDialog
+        anchors.centerIn: parent
+        onTermsAccepted: d.createIdentity()
     }
 
     LogosToast {

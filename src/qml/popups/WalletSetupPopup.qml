@@ -26,7 +26,12 @@ LogosWarningDialog {
     leftActions: [
         LogosButton {
             objectName: "uplink.walletLaterButton"
+            anchors.verticalCenter: parent ? parent.verticalCenter : undefined
             text: qsTr("Later")
+            compact: true
+            font.pixelSize: Theme.typography.primaryText
+            font.weight: Theme.typography.weightBold
+            background: Item {}
             onClicked: root.close()
         }
     ]

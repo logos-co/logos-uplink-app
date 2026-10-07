@@ -17,7 +17,7 @@ Item {
     ColumnLayout {
         anchors.centerIn: parent
         width: Math.min(parent.width - 2 * Theme.spacing.xlarge, 660)
-        spacing: 0
+        spacing: Theme.spacing.large
 
         LogosText {
             Layout.alignment: Qt.AlignHCenter
@@ -29,7 +29,6 @@ Item {
 
         Rectangle {
             Layout.alignment: Qt.AlignHCenter
-            Layout.topMargin: Theme.spacing.small
             visible: root.network !== ""
             implicitWidth: tag.implicitWidth + 2 * Theme.spacing.medium
             implicitHeight: tag.implicitHeight + Theme.spacing.tiny * 2
@@ -40,7 +39,7 @@ Item {
             LogosText {
                 id: tag
                 anchors.centerIn: parent
-                text: root.network
+                text: qsTr("testnet %1").arg(root.network)
                 font.pixelSize: Theme.typography.secondaryText
                 color: Theme.palette.textTertiary
             }
@@ -49,7 +48,6 @@ Item {
         LogosText {
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: Math.min(parent.width, 580)
-            Layout.topMargin: Theme.spacing.medium
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
             text: qsTr("Help stress-test the Logos Testnet: bring more people in to run Logos Blockchain nodes and keep them active. Keep your own node running too — that is what keeps you eligible — while nobody, including us, can reconstruct who invited whom.")
@@ -60,8 +58,8 @@ Item {
         LogosButton {
             objectName: "uplink.joinButton"
             Layout.alignment: Qt.AlignHCenter
-            Layout.topMargin: Theme.spacing.xlarge
             variant: LogosButton.Variant.Primary
+            font.pixelSize: Theme.typography.primaryText
             text: root.busy ? qsTr("Joining…") : qsTr("Join Uplink")
             enabled: !root.busy
             onClicked: root.joinRequested()
@@ -69,7 +67,7 @@ Item {
 
         RowLayout {
             Layout.fillWidth: true
-            Layout.topMargin: Theme.spacing.xxlarge
+            Layout.topMargin: Theme.spacing.xlarge
             spacing: Theme.spacing.large
 
             Block {
