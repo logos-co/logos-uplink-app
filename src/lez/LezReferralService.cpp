@@ -43,9 +43,16 @@ Result<Status> LezReferralService::submitClaim(const QString&, const QString&, c
 Result<Status> LezReferralService::cashOut(const QString&, const QString&) { return unavailable<Status>(); }
 Result<Status> LezReferralService::reconcile(const QString&) { return unavailable<Status>(); }
 
+// lez_core has no "is a wallet open" call. It answers get_sequencer_addr with ""
+// exactly when it holds no wallet; an open wallet always has a sequencer URL.
 Result<bool> LezReferralService::walletOpen()
 {
-    return Result<bool>::failure(QStringLiteral("lez_core can't report whether a wallet is open yet"));
+    if (!m_context.isContextReady())
+        return notConnected<bool>();
+    LogosAPIClient* client = m_context.modules().api->getClient("lez_core");
+    if (!client || !client->isConnected())
+        return notConnected<bool>();
+    return Result<bool>::success(!m_context.modules().lez_core.get_sequencer_addr().isEmpty());
 }
 
 // resolve_label answers "Private/<hex>" or "Public/<hex>", or "" when no account has the label.

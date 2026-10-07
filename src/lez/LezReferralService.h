@@ -4,10 +4,10 @@
 
 class LogosUiPluginContext;
 
-// ReferralService over lez_core. The label and address calls are real. lez_core
-// has no referral calls yet (they need logos-execution-zone#896 merged, referral
-// bindings in its wallet-ffi, and matching lez_core methods) and can't report
-// whether a wallet is open; until then those calls fail with that reason.
+// ReferralService over lez_core. The wallet, label, address and sync calls are
+// real. lez_core has no referral calls yet (they need logos-execution-zone#896
+// merged, referral bindings in its wallet-ffi, and matching lez_core methods);
+// until then those fail with that reason.
 class LezReferralService : public referral::ReferralService {
 public:
     explicit LezReferralService(LogosUiPluginContext& context);
