@@ -41,6 +41,7 @@ private:
     void refreshWallet();
     void showIdentity();
     void syncWallet();
+    void submitRegistration(const QByteArray& signature);
     void syncNextChunk();
     void refreshReferral();
     void reconcileOperations();

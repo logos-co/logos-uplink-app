@@ -133,10 +133,10 @@ LOGOS_TEST(no_wallet_means_no_identity) {
 LOGOS_TEST(the_identity_is_found_again_by_its_label) {
     MockReferralService s;
     const QString p = s.createParticipant().value;
-    LOGOS_ASSERT_EQ(s.resolveLabel("Uplink referral identity").value, QString());
-    LOGOS_ASSERT_TRUE(s.addLabel("Uplink referral identity", p).ok());
-    LOGOS_ASSERT_EQ(s.resolveLabel("Uplink referral identity").value, p);
-    LOGOS_ASSERT_FALSE(s.addLabel("Uplink referral identity", "other").ok());
+    LOGOS_ASSERT_EQ(s.resolveLabel("Uplink points account").value, QString());
+    LOGOS_ASSERT_TRUE(s.addLabel("Uplink points account", p).ok());
+    LOGOS_ASSERT_EQ(s.resolveLabel("Uplink points account").value, p);
+    LOGOS_ASSERT_FALSE(s.addLabel("Uplink points account", "other").ok());
 }
 
 LOGOS_TEST(the_mock_wallet_starts_behind_and_catches_up) {

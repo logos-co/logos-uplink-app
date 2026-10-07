@@ -1,2 +1,3 @@
 WelcomePage 1.0 WelcomePage.qml
-IdentityPage 1.0 IdentityPage.qml
+JoinPage 1.0 JoinPage.qml
+JoinedPage 1.0 JoinedPage.qml

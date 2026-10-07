@@ -19,8 +19,8 @@ constexpr qint64 kSyncChunk = 100;   // blocks per step, as the LEZ Wallet app d
 // and logos-blockchain-module#108 agree on one.
 const QString kRegisterDomain = QStringLiteral("lez-referral/register");
 
-// Names the identity account in the user's LEZ wallet; also how Uplink finds it again.
-const QString kIdentityLabel = QStringLiteral("Uplink referral identity");
+// Names the points account in the user's LEZ wallet; also how Uplink finds it again.
+const QString kIdentityLabel = QStringLiteral("Uplink points account");
 
 QString newReference()
 {
@@ -328,6 +328,12 @@ void UplinkBackend::prepareEnroll()
         fail(prepared.error);
         return;
     }
+    // A mock node signs on the spot; a real one goes through the node app.
+    const auto signedNow = m_node->signWithoutPrompt(kRegisterDomain, prepared.value);
+    if (signedNow.ok()) {
+        submitRegistration(signedNow.value);
+        return;
+    }
     setSignRequest({
         {QStringLiteral("domain"), kRegisterDomain},
         {QStringLiteral("payload_hex"), QString::fromLatin1(prepared.value.toHex())},
@@ -344,8 +350,12 @@ void UplinkBackend::completeEnroll(QString signatureHex, QString publicKeyHex)
         fail(QStringLiteral("The signature is from a different node key."));
         return;
     }
-    const auto attached = m_referral->attachNodeSignature(participantId(),
-                                                          QByteArray::fromHex(signatureHex.toLatin1()));
+    submitRegistration(QByteArray::fromHex(signatureHex.toLatin1()));
+}
+
+void UplinkBackend::submitRegistration(const QByteArray& signature)
+{
+    const auto attached = m_referral->attachNodeSignature(participantId(), signature);
     if (!attached.ok()) {
         fail(attached.error);
         return;

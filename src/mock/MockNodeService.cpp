@@ -50,3 +50,9 @@ node::Status MockNodeService::status()
     s.nodeId = kNodeId;
     return s;
 }
+
+Result<QByteArray> MockNodeService::signWithoutPrompt(const QString& domain, const QByteArray& payload)
+{
+    const QByteArray message = "logos-node-msg/v1" + domain.toUtf8() + payload;
+    return Result<QByteArray>::success(QCryptographicHash::hash(message, QCryptographicHash::Sha512));
+}

@@ -11,6 +11,7 @@ public:
     static node::Issue issueFromName(const QString& name);
 
     node::Status status() override;
+    Result<QByteArray> signWithoutPrompt(const QString& domain, const QByteArray& payload) override;
 
     void setIssue(node::Issue issue) { m_issue = issue; }
 
