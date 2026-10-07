@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <memory>
 
+#include "ActivityLog.h"
 #include "logos_ui_plugin_context.h"
 #include "rep_uplink_ui_source.h"
 #include "interfaces/NodeService.h"
@@ -42,6 +43,8 @@ private:
     void refreshWallet();
     void showIdentity();
     void syncWallet();
+    static QString dataFile();
+    void recordActivity(const referral::Registry& registry, const QString& myNode, const QStringList& referralNodes);
     void submitRegistration(const QByteArray& signature);
     void syncNextChunk();
     void refreshReferral();
@@ -56,6 +59,8 @@ private:
     QMap<QString, Operation> m_operations;           // reference -> operation
     QString m_registerReference;
     QMap<QString, QString> m_labels;                 // node -> label
+    ActivityLog m_activity;
+    QString m_activityOwner;                         // participant whose saved data is loaded
     QTimer m_poll;
     bool m_syncing = false;
     qint64 m_syncTarget = 0;

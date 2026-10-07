@@ -3,6 +3,10 @@
 #include <logos_test.h>
 
 #include "mock/MockNodeService.h"
+#include <QSettings>
+#include <QTemporaryDir>
+
+#include "ActivityLog.h"
 #include "InvitationCode.h"
 #include "mock/MockReferralService.h"
 
@@ -179,4 +183,42 @@ LOGOS_TEST(a_bad_invitation_code_decodes_to_nothing) {
     LOGOS_ASSERT_EQ(invitation_code::decode("uplink-invite:%%%"), QString());
     LOGOS_ASSERT_EQ(invitation_code::inviterNode("{\"parent_node\":\"abc\",\"npk\":\"x\",\"vpk\":\"y\"}"), QString());
     LOGOS_ASSERT_EQ(invitation_code::inviterNode(invitation_code::decode(invitation_code::encode("{}"))), QString());
+}
+
+LOGOS_TEST(activity_window_marks_active_missed_unknown_and_not_yet) {
+    ActivityLog log;
+    log.record(10, {"me", "a"}, {"me"});
+    log.record(12, {"me", "a"}, {"me", "a"});          // 11 published while not running
+    log.record(13, {"me", "a", "b"}, {"b"});           // b appears
+    const QVariantList me = log.window("me");
+    LOGOS_ASSERT_EQ(me.size(), ActivityLog::kWindow);
+    LOGOS_ASSERT_EQ(me.value(15).toInt(), int(ActivityLog::Inactive));   // 13
+    LOGOS_ASSERT_EQ(me.value(14).toInt(), int(ActivityLog::Active));     // 12
+    LOGOS_ASSERT_EQ(me.value(13).toInt(), int(ActivityLog::Unknown));    // 11
+    LOGOS_ASSERT_EQ(me.value(12).toInt(), int(ActivityLog::Active));     // 10
+    LOGOS_ASSERT_EQ(me.value(0).toInt(), int(ActivityLog::Unknown));     // before recording
+    const QVariantList b = log.window("b");
+    LOGOS_ASSERT_EQ(b.value(15).toInt(), int(ActivityLog::Active));
+    LOGOS_ASSERT_EQ(b.value(14).toInt(), int(ActivityLog::NotYet));
+}
+
+LOGOS_TEST(activity_log_keeps_only_the_window_and_survives_a_restart) {
+    ActivityLog log;
+    for (quint32 e = 1; e <= 40; ++e)
+        log.record(e, {"me"}, e % 2 ? QStringList{"me"} : QStringList{});
+    LOGOS_ASSERT_FALSE(log.record(40, {"me"}, {"me"}));   // an epoch is recorded once
+
+    QTemporaryDir dir;
+    const QString path = dir.filePath("activity.ini");
+    {
+        QSettings ini(path, QSettings::IniFormat);
+        ini.beginGroup("account");
+        log.writeTo(ini);
+    }
+    QSettings ini(path, QSettings::IniFormat);
+    ini.beginGroup("account");
+    const ActivityLog again = ActivityLog::readFrom(ini);
+    LOGOS_ASSERT_EQ(again.lastEpoch(), quint32(40));
+    LOGOS_ASSERT_EQ(again.window("me"), log.window("me"));
+    LOGOS_ASSERT_EQ(ini.value("marks/me").toString().split(',').size(), ActivityLog::kWindow);
 }

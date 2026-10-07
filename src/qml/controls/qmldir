@@ -1,3 +1,5 @@
 InfoCard 1.0 InfoCard.qml
 StepPage 1.0 StepPage.qml
 ChoiceCard 1.0 ChoiceCard.qml
+ActivityDots 1.0 ActivityDots.qml
+NetworkTag 1.0 NetworkTag.qml

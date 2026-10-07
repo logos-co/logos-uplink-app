@@ -34,10 +34,7 @@ Item {
     }
 
     ColumnLayout {
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: Math.min(parent.width, 660)
+        anchors.fill: parent
         spacing: Theme.spacing.small
 
         LogosText {
