@@ -1,0 +1,5 @@
+OnboardingView 1.0 OnboardingView.qml
+TermsStep 1.0 TermsStep.qml
+ReadyStep 1.0 ReadyStep.qml
+JoinStep 1.0 JoinStep.qml
+DoneStep 1.0 DoneStep.qml

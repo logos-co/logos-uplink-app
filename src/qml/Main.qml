@@ -5,8 +5,8 @@ import Logos.Theme
 import Logos.Controls
 import Logos.UplinkUi 1.0
 
+import "onboarding"
 import "pages"
-import "popups"
 
 Rectangle {
     id: root
@@ -22,9 +22,8 @@ Rectangle {
         property string pendingInvitation: ""   // carried across account creation
 
         readonly property int welcomePage: 0
-        readonly property int joinPage: 1
-        readonly property int joinedPage: 2
-        readonly property int overviewPage: 3
+        readonly property int onboardingPage: 1
+        readonly property int overviewPage: 2
 
         // Joining is the acceptance (the node signs after the terms), so a joined user
         // never sees the welcome or the terms again.
@@ -40,11 +39,12 @@ Rectangle {
         function join() {
             if (!d.backend)
                 return
-            if (d.backend.participantId !== "") {
-                pages.currentIndex = d.backend.enrolState === UplinkUi.Enrolled ? d.overviewPage : d.joinPage
+            if (d.backend.enrolState === UplinkUi.Enrolled) {
+                pages.currentIndex = d.overviewPage
                 return
             }
-            termsDialog.open()
+            onboarding.begin()
+            pages.currentIndex = d.onboardingPage
         }
 
         // Joining creates the points account first (or reuses one found in the wallet).
@@ -113,41 +113,35 @@ Rectangle {
             onJoinRequested: d.join()
         }
 
-        JoinPage {
+        OnboardingView {
+            id: onboarding
+
             nodeIssue: d.backend ? d.backend.nodeIssue : UplinkUi.ModuleUnavailable
             nodeId: d.backend ? d.backend.nodeId : ""
-            creatingAccount: d.creatingIdentity
             walletIssue: d.backend ? d.backend.walletIssue : UplinkUi.LezCoreUnavailable
             walletDetail: d.backend && d.backend.walletIssue === UplinkUi.LezCoreUnavailable
                           ? d.backend.walletIssueDetail : ""
             syncedBlock: d.backend ? d.backend.syncedBlock : 0
             chainHeight: d.backend ? d.backend.chainHeight : 0
             invitationCheck: d.backend ? d.backend.invitationCheck : UplinkUi.InvitationEmpty
-            onInvitationEdited: function (text) { d.backend.checkInvitation(text) }
-            enrolState: d.backend ? d.backend.enrolState : UplinkUi.IdentityCreated
+            enrolState: d.backend ? d.backend.enrolState : UplinkUi.NoIdentity
+            creatingAccount: d.creatingIdentity
             error: d.backend ? d.backend.lastError : ""
-            onImportAndSignRequested: function (invitation) { d.startJoin(invitation) }
-            onJoinWithoutReferralRequested: d.startJoin("")
+            referrerNode: d.backend ? d.backend.referrerNode : ""
+            accountLabel: d.backend ? d.backend.identityLabel : ""
+            accountAddress: d.backend ? d.backend.identityAddress : ""
+
+            onExitRequested: pages.currentIndex = d.welcomePage
+            onJoinRequested: function (invitation) { d.startJoin(invitation) }
+            onInvitationEdited: function (text) { d.backend.checkInvitation(text) }
             onOpenBlockchainAppRequested: d.launchApp("blockchain_ui", qsTr("Blockchain"),
                 qsTr("Open it from the Basecamp sidebar and start your node, then come back."))
             onOpenLezWalletRequested: d.launchApp("lez_wallet_ui", qsTr("LEZ Wallet"),
                 qsTr("Open it from the Basecamp sidebar, set up your wallet there, then come back."))
-        }
-
-        JoinedPage {
-            referrerNode: d.backend ? d.backend.referrerNode : ""
-            accountLabel: d.backend ? d.backend.identityLabel : ""
-            accountAddress: d.backend ? d.backend.identityAddress : ""
             onFinished: pages.currentIndex = d.overviewPage
         }
 
         OverviewPage {}
-    }
-
-    TermsDialog {
-        id: termsDialog
-        anchors.centerIn: parent
-        onTermsAccepted: pages.currentIndex = d.joinPage
     }
 
     LogosToast {
@@ -184,9 +178,7 @@ Rectangle {
                 d.requestSignature()
                 break
             case UplinkUi.Enrolled:
-                if (pages.currentIndex === d.joinPage)
-                    pages.currentIndex = d.joinedPage
-                else
+                if (pages.currentIndex !== d.onboardingPage)
                     d.showJoinedIfEnrolled()
                 break
             }
