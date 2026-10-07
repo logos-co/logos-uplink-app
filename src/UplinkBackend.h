@@ -29,8 +29,10 @@ public slots:
     void prepareEnroll() override;
     void completeEnroll(QString signatureHex, QString publicKeyHex) override;
     void reportSignFailed(QString error) override;
-    void claimPoints() override;
-    void cashOut() override;
+    void cashOutAll() override;
+    void finishCashOut() override;
+    void completePayoutSignature(QString signatureHex, QString publicKeyHex) override;
+    void reportPayoutSignFailed(QString error) override;
     void setReferralLabel(QString node, QString label) override;
 
 private:
@@ -46,6 +48,9 @@ private:
     static QString dataFile();
     void recordActivity(const referral::Registry& registry, const QString& myNode, const QStringList& referralNodes);
     void submitRegistration(const QByteArray& signature);
+    void startCashOut();
+    void preparePayoutCode();
+    void failCashOut(const QString& error);
     void syncNextChunk();
     void refreshReferral();
     void reconcileOperations();
@@ -58,6 +63,9 @@ private:
 
     QMap<QString, Operation> m_operations;           // reference -> operation
     QString m_registerReference;
+    QString m_collectReference;                      // the Collect behind a cash out
+    QString m_cashOutReference;
+    referral::Opening m_payoutOpening;              // what the payout code is being signed for
     QMap<QString, QString> m_labels;                 // node -> label
     ActivityLog m_activity;
     QString m_activityOwner;                         // participant whose saved data is loaded

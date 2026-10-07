@@ -41,6 +41,14 @@ struct Receipt {
     QString points = QStringLiteral("0");
 };
 
+// What proves a receipt: its address is derived from these. #896's Opening.
+struct Opening {
+    QString programAccount;
+    QString node;
+    QString blindingFactor;           // 32 bytes, hex; derived from the wallet's keys
+    QString account;                  // the receipt
+};
+
 enum class Status { Pending, Settled, Rejected };
 
 class ReferralService {
@@ -60,6 +68,7 @@ public:
     virtual Result<QList<Note>> notes(const QString& participant) = 0;
     virtual Result<QString> claimable(const QString& participant) = 0;
     virtual Result<QList<Receipt>> receipts(const QString& participant) = 0;
+    virtual Result<Opening> opening(const QString& participant, quint64 index) = 0;
 
     // `reference` is a caller-chosen 32-byte id (hex); resubmitting it is idempotent.
     virtual Result<Status> submitRegister(const QString& reference, const QString& participant) = 0;

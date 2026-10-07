@@ -38,6 +38,7 @@ Result<Registry> LezReferralService::registry() { return unavailable<Registry>()
 Result<QList<Note>> LezReferralService::notes(const QString&) { return unavailable<QList<Note>>(); }
 Result<QString> LezReferralService::claimable(const QString&) { return unavailable<QString>(); }
 Result<QList<Receipt>> LezReferralService::receipts(const QString&) { return unavailable<QList<Receipt>>(); }
+Result<Opening> LezReferralService::opening(const QString&, quint64) { return unavailable<Opening>(); }
 Result<Status> LezReferralService::submitRegister(const QString&, const QString&) { return unavailable<Status>(); }
 Result<Status> LezReferralService::submitClaim(const QString&, const QString&, const QStringList&) { return unavailable<Status>(); }
 Result<Status> LezReferralService::cashOut(const QString&, const QString&) { return unavailable<Status>(); }

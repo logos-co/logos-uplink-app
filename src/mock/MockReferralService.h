@@ -31,6 +31,7 @@ public:
     Result<QList<referral::Note>> notes(const QString& participant) override;
     Result<QString> claimable(const QString& participant) override;
     Result<QList<referral::Receipt>> receipts(const QString& participant) override;
+    Result<referral::Opening> opening(const QString& participant, quint64 index) override;
     Result<referral::Status> submitRegister(const QString& reference, const QString& participant) override;
     Result<referral::Status> submitClaim(const QString& reference, const QString& participant,
                                          const QStringList& noteAccounts) override;
@@ -51,6 +52,11 @@ public:
     // A node that is already registered, so its invitations import cleanly.
     static QString inviterNode();
     static QString invitationFor(const QString& node);
+
+    // A receipt's address from its opening, as #896's cash_out_receipt(): only someone
+    // holding the opening can find the receipt. The payout side recomputes it.
+    static QString receiptAddress(const QString& programAccount, const QString& node,
+                                  const QString& blindingFactor);
 
 private:
     struct Pending {
@@ -79,6 +85,8 @@ private:
     };
 
     QString nextId(const char* tag);
+    static QString programAccount();
+    static QString blindingFactor(const QString& participant, quint64 index);
     Result<referral::Status> record(const QString& reference, Operation operation);
     referral::Status settle(Operation& operation);
     void addNote(referral::Note note, const QString& recipient);

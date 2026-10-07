@@ -61,6 +61,18 @@ class UplinkUi
         InvitationOk      = 4
     }
 
+    // Cash out runs Collect (if anything is claimable), then CashOut, reads the receipt's
+    // opening, and has the node sign it into the payout code. SigningCode is the node
+    // app's turn: QML requests node.sign_message with signRequest, then completes or reports.
+    ENUM CashOutState {
+        CashOutIdle   = 0,
+        Collecting    = 1,
+        CashingOut    = 2,
+        PreparingCode = 3,
+        SigningCode   = 4,
+        CashOutDone   = 5
+    }
+
     ENUM OperationStatus {
         OperationPending  = 0,
         OperationSettled  = 1,
@@ -90,6 +102,10 @@ class UplinkUi
     PROP(QString rewardBalance READONLY)      // collected, not yet cashed out
     PROP(QString lifetimePoints READONLY)     // rewardBalance + every cash-out
     PROP(QVariantList receipts READONLY)      // [{index, account, points}]
+    PROP(int cashOutState READONLY)
+    PROP(QString payoutCode READONLY)         // for the payout form, once CashOutDone
+    PROP(QString payoutPoints READONLY)       // what that code is for
+    PROP(QString payoutFormUrl READONLY)      // where the user pastes the code
     PROP(QVariantList operations READONLY)    // [{ref, kind, status}]
 
     SLOT(void createIdentity())
@@ -99,7 +115,9 @@ class UplinkUi
     SLOT(void prepareEnroll())
     SLOT(void completeEnroll(QString signatureHex, QString publicKeyHex))
     SLOT(void reportSignFailed(QString error))
-    SLOT(void claimPoints())
-    SLOT(void cashOut())
+    SLOT(void cashOutAll())
+    SLOT(void completePayoutSignature(QString signatureHex, QString publicKeyHex))
+    SLOT(void reportPayoutSignFailed(QString error))   // stays SigningCode; asking again retries
+    SLOT(void finishCashOut())               // back to idle once the code is copied
     SLOT(void setReferralLabel(QString node, QString label))
 }
