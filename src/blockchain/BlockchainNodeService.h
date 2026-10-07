@@ -11,6 +11,7 @@ public:
     explicit BlockchainNodeService(LogosUiPluginContext& context);
 
     node::Status status() override;
+    Result<QByteArray> signWithoutPrompt(const QString& domain, const QByteArray& payload) override;
 
 private:
     LogosUiPluginContext& m_context;

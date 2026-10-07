@@ -27,7 +27,7 @@ earn points while the nodes they brought in do real work on the network.
 
 - The Logos Basecamp app, with the Blockchain app running a node that is **Online** and declared as
   a **Blend core node**.
-- A LEZ wallet. Your referral identity lives in it and can be restored from its recovery phrase.
+- A LEZ wallet. Your points account lives in it and can be restored from its recovery phrase.
 
 ## Dependencies
 

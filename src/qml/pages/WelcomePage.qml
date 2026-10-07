@@ -10,7 +10,6 @@ Item {
     objectName: "uplink.WelcomePage"
 
     property string network: ""   // the node's chain ID; hidden until the node reports one
-    property bool busy: false
 
     signal joinRequested()
 
@@ -60,8 +59,7 @@ Item {
             Layout.alignment: Qt.AlignHCenter
             variant: LogosButton.Variant.Primary
             font.pixelSize: Theme.typography.primaryText
-            text: root.busy ? qsTr("Joining…") : qsTr("Join Uplink")
-            enabled: !root.busy
+            text: qsTr("Join Uplink")
             onClicked: root.joinRequested()
         }
 

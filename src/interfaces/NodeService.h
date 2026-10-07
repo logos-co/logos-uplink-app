@@ -28,6 +28,7 @@ public:
     virtual ~NodeService() = default;
 
     virtual Status status() = 0;
+    virtual Result<QByteArray> signWithoutPrompt(const QString& domain, const QByteArray& payload) = 0;
 };
 
 } // namespace node
