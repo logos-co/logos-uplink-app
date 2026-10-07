@@ -24,9 +24,9 @@ Item {
     property var myActivity: []
     property var referrals: []
     property string referrerNode: ""
+    property string invitation: ""
 
     signal claimRequested()
-    signal inviteRequested()
     signal labelEdited(string node, string label)
 
     onMyActivityChanged: d.rebuild()
@@ -161,7 +161,7 @@ Item {
                 variant: LogosButton.Variant.Primary
                 font.pixelSize: Theme.typography.primaryText
                 text: qsTr("Invite peer")
-                onClicked: root.inviteRequested()
+                onClicked: inviteDialog.open()
             }
         }
 
@@ -391,6 +391,13 @@ Item {
         anchors.centerIn: parent
     }
 
+    InviteDialog {
+        id: inviteDialog
+
+        anchors.centerIn: parent
+        invitation: root.invitation
+    }
+
     // ---- Label dialog -------------------------------------------------------------
 
     LogosDialog {
@@ -403,6 +410,7 @@ Item {
         width: Math.min(400, parent.width - 2 * Theme.spacing.xxlarge)
         dim: true
         title: qsTr("Label this referral")
+        headerItem.font.pixelSize: Theme.typography.subtitleText
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
         contentItem: ColumnLayout {
