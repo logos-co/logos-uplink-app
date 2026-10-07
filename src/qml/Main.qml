@@ -159,6 +159,7 @@ Rectangle {
             nodeActive: d.backend ? d.backend.nodeActive : false
             myActivity: d.backend ? d.backend.myActivity : []
             referrals: d.backend ? d.backend.referrals : []
+            referrerNode: d.backend ? d.backend.referrerNode : ""
             onLabelEdited: function (node, label) { d.backend.setReferralLabel(node, label) }
             onClaimRequested: d.notYet(qsTr("Claim rewards"))
             onInviteRequested: d.notYet(qsTr("Invite peer"))

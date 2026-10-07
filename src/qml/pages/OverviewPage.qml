@@ -7,6 +7,7 @@ import Logos.Controls
 import Logos.UplinkUi 1.0
 
 import "../controls"
+import "../popups"
 
 // Home for joined users: points and actions on top, then this node and each direct
 // referral with their last 16 published epochs.
@@ -22,6 +23,7 @@ Item {
     property bool nodeActive: false
     property var myActivity: []
     property var referrals: []
+    property string referrerNode: ""
 
     signal claimRequested()
     signal inviteRequested()
@@ -271,15 +273,11 @@ Item {
                 }
             }
 
-            // ---- About tab (next) --------------------------------------------------
+            // ---- About tab ---------------------------------------------------------
 
-            Item {
-                LogosText {
-                    anchors.centerIn: parent
-                    text: qsTr("About the program — coming next.")
-                    font.pixelSize: Theme.typography.primaryText
-                    color: Theme.palette.textSecondary
-                }
+            AboutView {
+                referrerNode: root.referrerNode
+                onReadTermsRequested: termsDialog.open()
             }
         }
     }
@@ -385,6 +383,12 @@ Item {
             // Keeps the note beside the badge; a row with nothing to fill spreads its items.
             Item { Layout.fillWidth: true }
         }
+    }
+
+    TermsDialog {
+        id: termsDialog
+
+        anchors.centerIn: parent
     }
 
     // ---- Label dialog -------------------------------------------------------------
