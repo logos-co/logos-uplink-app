@@ -24,6 +24,7 @@ Rectangle {
         readonly property int welcomePage: 0
         readonly property int joinPage: 1
         readonly property int joinedPage: 2
+        readonly property int overviewPage: 3
 
         // Joining is the acceptance (the node signs after the terms), so a joined user
         // never sees the welcome or the terms again.
@@ -31,15 +32,16 @@ Rectangle {
         Component.onCompleted: d.showJoinedIfEnrolled()
 
         function showJoinedIfEnrolled() {
-            if (d.backend && d.backend.enrolState === UplinkUi.Enrolled)
-                pages.currentIndex = d.joinedPage
+            if (d.backend && d.backend.enrolState === UplinkUi.Enrolled
+                    && pages.currentIndex === d.welcomePage)
+                pages.currentIndex = d.overviewPage
         }
 
         function join() {
             if (!d.backend)
                 return
             if (d.backend.participantId !== "") {
-                pages.currentIndex = d.backend.enrolState === UplinkUi.Enrolled ? d.joinedPage : d.joinPage
+                pages.currentIndex = d.backend.enrolState === UplinkUi.Enrolled ? d.overviewPage : d.joinPage
                 return
             }
             termsDialog.open()
@@ -121,7 +123,6 @@ Rectangle {
             syncedBlock: d.backend ? d.backend.syncedBlock : 0
             chainHeight: d.backend ? d.backend.chainHeight : 0
             invitationCheck: d.backend ? d.backend.invitationCheck : UplinkUi.InvitationEmpty
-            invitationInviter: d.backend ? d.backend.invitationInviter : ""
             onInvitationEdited: function (text) { d.backend.checkInvitation(text) }
             enrolState: d.backend ? d.backend.enrolState : UplinkUi.IdentityCreated
             error: d.backend ? d.backend.lastError : ""
@@ -137,7 +138,10 @@ Rectangle {
             referrerNode: d.backend ? d.backend.referrerNode : ""
             accountLabel: d.backend ? d.backend.identityLabel : ""
             accountAddress: d.backend ? d.backend.identityAddress : ""
+            onFinished: pages.currentIndex = d.overviewPage
         }
+
+        OverviewPage {}
     }
 
     TermsDialog {
@@ -180,7 +184,10 @@ Rectangle {
                 d.requestSignature()
                 break
             case UplinkUi.Enrolled:
-                pages.currentIndex = d.joinedPage
+                if (pages.currentIndex === d.joinPage)
+                    pages.currentIndex = d.joinedPage
+                else
+                    d.showJoinedIfEnrolled()
                 break
             }
         }

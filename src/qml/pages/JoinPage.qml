@@ -5,6 +5,8 @@ import Logos.Theme
 import Logos.Controls
 import Logos.UplinkUi 1.0
 
+import "../controls"
+
 // Step 2: join under an inviter or as a root. Joining creates the points account, then binds the node to it.
 Item {
     id: root
@@ -19,7 +21,6 @@ Item {
     property int syncedBlock: 0
     property int chainHeight: 0
     property int invitationCheck: UplinkUi.InvitationEmpty
-    property string invitationInviter: ""
     property int enrolState: UplinkUi.IdentityCreated
     property string error: ""
 
@@ -76,8 +77,6 @@ Item {
                 return qsTr("That’s your own invitation — you can’t join under yourself.")
             case UplinkUi.InviterNotJoined:
                 return qsTr("This inviter hasn’t joined the program yet.")
-            case UplinkUi.InvitationOk:
-                return qsTr("Invitation OK — inviter node %1.").arg(d.shortId(root.invitationInviter))
             }
             return ""
         }
@@ -111,13 +110,13 @@ Item {
             color: Theme.palette.textSecondary
         }
 
-        Card {
+        InfoCard {
             Layout.topMargin: Theme.spacing.small
             title: d.nodeDetected ? qsTr("YOUR NODE (DETECTED)") : qsTr("YOUR NODE (NOT DETECTED)")
             status: d.nodeDetected ? qsTr("Online") : ""
             detail: d.shortId(root.nodeId)
             note: qsTr("Signs your join; this key is your identity in the program.")
-            detected: d.nodeDetected
+            showDetails: d.nodeDetected
 
             RowLayout {
                 Layout.fillWidth: true
@@ -147,13 +146,13 @@ Item {
             }
         }
 
-        Card {
+        InfoCard {
             title: d.walletReady ? qsTr("YOUR LEZ WALLET (OPEN)") : qsTr("YOUR LEZ WALLET (NOT OPEN)")
             status: d.walletReady ? qsTr("Open") : ""
             detail: d.syncing ? qsTr("Syncing… block %1 of %2").arg(root.syncedBlock).arg(root.chainHeight)
                               : qsTr("Synced to block %1").arg(root.syncedBlock)
             note: qsTr("Joining adds a private points account to this wallet.")
-            detected: d.walletReady
+            showDetails: d.walletReady
 
             RowLayout {
                 Layout.fillWidth: true
@@ -209,8 +208,7 @@ Item {
                 wrapMode: Text.WordWrap
                 text: d.invitationNote()
                 font.pixelSize: Theme.typography.secondaryText
-                color: root.invitationCheck === UplinkUi.InvitationOk ? Theme.palette.textTertiary
-                                                                     : Theme.palette.error
+                color: Theme.palette.error
             }
         }
 
@@ -261,66 +259,6 @@ Item {
             shown: root.error !== "" && !d.busy
             severity: LogosNotice.Error
             message: root.error
-        }
-    }
-
-    component Card: LogosFrame {
-        id: card
-
-        property string title
-        property string status
-        property string detail
-        property string note
-        property bool detected: false
-        default property alias content: cardColumn.data
-
-        Layout.fillWidth: true
-        padding: Theme.spacing.large
-        backgroundColor: Theme.palette.backgroundTertiary
-        borderColor: Theme.palette.borderSecondary
-        radius: Theme.spacing.radiusLarge
-
-        ColumnLayout {
-            id: cardColumn
-
-            anchors.fill: parent
-            spacing: Theme.spacing.small
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.spacing.small
-
-                LogosText {
-                    Layout.fillWidth: true
-                    text: card.title
-                    font.pixelSize: Theme.typography.secondaryText
-                    font.letterSpacing: 0.6
-                    color: Theme.palette.textSecondary
-                }
-                LogosBadge {
-                    visible: card.status !== ""
-                    text: card.status
-                    color: Theme.palette.success
-                }
-            }
-
-            LogosText {
-                Layout.fillWidth: true
-                visible: card.detected && card.detail !== ""
-                text: card.detail
-                elide: Text.ElideRight
-                font.pixelSize: Theme.typography.primaryText
-                color: Theme.palette.text
-            }
-
-            LogosText {
-                Layout.fillWidth: true
-                visible: card.detected && card.note !== ""
-                wrapMode: Text.WordWrap
-                text: card.note
-                font.pixelSize: Theme.typography.secondaryText
-                color: Theme.palette.textTertiary
-            }
         }
     }
 }
