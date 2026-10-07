@@ -18,10 +18,13 @@ Item {
     property string walletDetail: ""
     property int syncedBlock: 0
     property int chainHeight: 0
+    property int invitationCheck: UplinkUi.InvitationEmpty
+    property string invitationInviter: ""
     property int enrolState: UplinkUi.IdentityCreated
     property string error: ""
 
     signal importAndSignRequested(string invitation)
+    signal invitationEdited(string text)
     signal joinWithoutReferralRequested()
     signal openBlockchainAppRequested()
     signal openLezWalletRequested()
@@ -63,6 +66,20 @@ Item {
                 return qsTr("Your node is still starting up. You can join once it's online.")
             }
             return qsTr("Your node is running, but Uplink can't read its key yet.")
+        }
+
+        function invitationNote() {
+            switch (root.invitationCheck) {
+            case UplinkUi.InvitationInvalid:
+                return qsTr("That doesn’t look like an invitation code.")
+            case UplinkUi.InvitationOwn:
+                return qsTr("That’s your own invitation — you can’t join under yourself.")
+            case UplinkUi.InviterNotJoined:
+                return qsTr("This inviter hasn’t joined the program yet.")
+            case UplinkUi.InvitationOk:
+                return qsTr("Invitation OK — inviter node %1.").arg(d.shortId(root.invitationInviter))
+            }
+            return ""
         }
 
         function shortId(id) {
@@ -182,6 +199,18 @@ Item {
                 font.family: Theme.typography.mono
                 font.pixelSize: Theme.typography.secondaryText
                 placeholderText: qsTr("Paste your inviter’s invitation (the code they shared)")
+                onTextChanged: root.invitationEdited(text)
+            }
+
+            LogosText {
+                objectName: "uplink.invitationNote"
+                Layout.fillWidth: true
+                visible: text !== ""
+                wrapMode: Text.WordWrap
+                text: d.invitationNote()
+                font.pixelSize: Theme.typography.secondaryText
+                color: root.invitationCheck === UplinkUi.InvitationOk ? Theme.palette.textTertiary
+                                                                     : Theme.palette.error
             }
         }
 
@@ -194,7 +223,7 @@ Item {
                 variant: LogosButton.Variant.Primary
                 font.pixelSize: Theme.typography.primaryText
                 text: qsTr("Import invitation & sign")
-                enabled: d.ready && !d.busy && invitation.text.trim() !== ""
+                enabled: d.ready && !d.busy && root.invitationCheck === UplinkUi.InvitationOk
                 onClicked: root.importAndSignRequested(invitation.text.trim())
             }
             LogosButton {

@@ -53,6 +53,14 @@ class UplinkUi
         EnrolRejected     = 6
     }
 
+    ENUM InvitationCheck {
+        InvitationEmpty   = 0,
+        InvitationInvalid = 1,
+        InvitationOwn     = 2,
+        InviterNotJoined  = 3,
+        InvitationOk      = 4
+    }
+
     ENUM OperationStatus {
         OperationPending  = 0,
         OperationSettled  = 1,
@@ -69,7 +77,9 @@ class UplinkUi
     PROP(QString identityLabel READONLY)      // the identity account's name in the LEZ Wallet app
     PROP(QString identityAddress READONLY)    // base58, as the LEZ Wallet app shows it
     PROP(QString referrerNode READONLY)       // "" = own tree
-    PROP(QString invitation READONLY)         // blob to hand to people you refer; "" until enrolled
+    PROP(QString invitation READONLY)         // your shareable invitation code; "" until enrolled
+    PROP(int invitationCheck READONLY)        // checkInvitation's verdict on the pasted code
+    PROP(QString invitationInviter READONLY)  // the inviter's node in the pasted code
     PROP(QVariantMap signRequest READONLY)    // node.sign_message params while AwaitingSignature
     PROP(int epoch READONLY)
     PROP(int activeCount READONLY)
@@ -82,7 +92,8 @@ class UplinkUi
     PROP(QVariantList operations READONLY)    // [{ref, kind, status}]
 
     SLOT(void createIdentity())
-    SLOT(void joinUnder(QString invitationBlob))
+    SLOT(void checkInvitation(QString code))
+    SLOT(void joinUnder(QString code))
     // prepareEnroll -> QML requests node.sign_message with signRequest -> completeEnroll or reportSignFailed
     SLOT(void prepareEnroll())
     SLOT(void completeEnroll(QString signatureHex, QString publicKeyHex))

@@ -3,6 +3,7 @@
 #include <logos_test.h>
 
 #include "mock/MockNodeService.h"
+#include "InvitationCode.h"
 #include "mock/MockReferralService.h"
 
 using namespace referral;
@@ -162,4 +163,20 @@ LOGOS_TEST(own_node_inactivity_pauses_earning_and_blocks_collecting) {
     s.advanceEpoch();   // 5: children 0, 2 active, own node active again
     LOGOS_ASSERT_EQ(claim(s, p), QString());
     LOGOS_ASSERT_EQ(s.participant(p).value.rewardBalance, QString("8"));
+}
+
+LOGOS_TEST(an_invitation_code_round_trips) {
+    const QString blob = MockReferralService::invitationFor(MockReferralService::inviterNode());
+    const QString code = invitation_code::encode(blob);
+    LOGOS_ASSERT_TRUE(code.startsWith("uplink-invite:"));
+    LOGOS_ASSERT_FALSE(code.contains('+') || code.contains('/') || code.contains('='));
+    LOGOS_ASSERT_EQ(invitation_code::decode("  " + code + "\n"), blob);
+    LOGOS_ASSERT_EQ(invitation_code::inviterNode(blob), MockReferralService::inviterNode());
+}
+
+LOGOS_TEST(a_bad_invitation_code_decodes_to_nothing) {
+    LOGOS_ASSERT_EQ(invitation_code::decode("hello"), QString());
+    LOGOS_ASSERT_EQ(invitation_code::decode("uplink-invite:%%%"), QString());
+    LOGOS_ASSERT_EQ(invitation_code::inviterNode("{\"parent_node\":\"abc\",\"npk\":\"x\",\"vpk\":\"y\"}"), QString());
+    LOGOS_ASSERT_EQ(invitation_code::inviterNode(invitation_code::decode(invitation_code::encode("{}"))), QString());
 }

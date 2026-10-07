@@ -23,7 +23,8 @@ public:
 public slots:
     void refresh() override;
     void createIdentity() override;
-    void joinUnder(QString invitationBlob) override;
+    void checkInvitation(QString code) override;
+    void joinUnder(QString code) override;
     void prepareEnroll() override;
     void completeEnroll(QString signatureHex, QString publicKeyHex) override;
     void reportSignFailed(QString error) override;

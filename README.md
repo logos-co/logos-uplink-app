@@ -80,9 +80,14 @@ for every epoch a referral was active since you last claimed. #896 currently pay
 epoch, so epochs you don't claim in are lost.
 
 It settles operations on the next poll (5 s), seeds three children when you
-register, and publishes a new epoch every 30 s. Invitations look like
-`uplink-mock-invitation:<node>`; the only registered node at start is
+register, and publishes a new epoch every 30 s. The only registered node at start is
 `MockReferralService::inviterNode()`.
+
+### Invitation codes
+
+An invitation is `uplink-invite:` + base64url (no padding) of the JSON blob lez_core hands out
+and takes back: `{"parent_node", "npk", "vpk"}`, logos-execution-zone#896's `Invitation`, keys in
+hex. `src/InvitationCode.h` encodes and decodes it; a format change gets a new prefix.
 
 ### Build and test
 
