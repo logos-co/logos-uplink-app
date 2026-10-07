@@ -6,14 +6,16 @@
 #include "interfaces/ReferralService.h"
 
 // In-memory referral programme, following the LEZ program on
-// logos-execution-zone#896 as of 2026-10-07, except for accrual:
-//  - a claim pays +1 per direct child per epoch it was active since it was last
-//    paid, plus every Credit note addressed to you. #896 pays only the current
-//    published epoch, so epochs not claimed in are lost; we assume that gets fixed;
+// logos-execution-zone#896 as of 2026-10-07, plus two rules we assume it gains:
+//  - accrual: a claim pays +1 per direct child per epoch since it was last paid
+//    (#896 pays only the current epoch), plus every Credit note addressed to you;
+//  - own-node activity: an epoch only pays if your own node was active in it too,
+//    and a claim is rejected while your node is not active (#896 checks neither);
 //  - a cash-out takes the whole reward balance and leaves a public receipt;
 //  - a node registers once, under a registered referrer whose invitation was imported first.
 // Operations settle on the next reconcile(). Registering seeds three children,
-// and the oracle publishes a new epoch every 30 seconds.
+// and the oracle publishes a new epoch every 30 seconds; your own node is
+// inactive every fourth epoch.
 class MockReferralService : public referral::ReferralService {
 public:
     explicit MockReferralService(bool walletOpen = true);

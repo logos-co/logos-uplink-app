@@ -120,7 +120,7 @@ LOGOS_TEST(mock_node_reports_the_issue_it_was_given) {
     LOGOS_ASSERT_FALSE(MockNodeService().status().nodeId.isEmpty());
     const node::Status notCore = MockNodeService(MockNodeService::issueFromName("not_core")).status();
     LOGOS_ASSERT_TRUE(notCore.issue == node::Issue::NotCore);
-    LOGOS_ASSERT_TRUE(notCore.nodeId.isEmpty());
+    LOGOS_ASSERT_FALSE(notCore.nodeId.isEmpty());   // the key is known whether or not the node is core
     LOGOS_ASSERT_TRUE(MockNodeService::issueFromName("typo") == node::Issue::None);
 }
 
@@ -147,4 +147,19 @@ LOGOS_TEST(the_mock_wallet_starts_behind_and_catches_up) {
     LOGOS_ASSERT_EQ(s.lastSyncedBlock().value, qint64(100));
     s.syncToBlock(height + 1000);   // never past the chain
     LOGOS_ASSERT_LE(s.lastSyncedBlock().value, s.currentBlockHeight().value);
+}
+
+// Assumed rule: an epoch pays only if your own node was active in it, and you can't
+// collect while your node is inactive. The mock's own node is off every fourth epoch.
+LOGOS_TEST(own_node_inactivity_pauses_earning_and_blocks_collecting) {
+    MockReferralService s;
+    const QString p = enrol(s, "node-a");
+    s.advanceEpoch();   // 2: children 0, 2 active, own node active, +1 credit
+    s.advanceEpoch();   // 3: children 1, 2 active, own node active
+    s.advanceEpoch();   // 4: children 0, 1 active, own node INACTIVE, +1 credit
+    LOGOS_ASSERT_EQ(s.claimable(p).value, QString("6"));   // 2 + 2 + 0, plus 2 credits
+    LOGOS_ASSERT_EQ(claim(s, p), QString("rejected"));
+    s.advanceEpoch();   // 5: children 0, 2 active, own node active again
+    LOGOS_ASSERT_EQ(claim(s, p), QString());
+    LOGOS_ASSERT_EQ(s.participant(p).value.rewardBalance, QString("8"));
 }

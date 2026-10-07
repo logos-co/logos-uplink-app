@@ -201,6 +201,7 @@ void UplinkBackend::refreshReferral()
         return;   // not registered yet
     const referral::Participant& p = participant.value;
     setEnrolState(Enrolled);
+    setNodeActive(registry.value.active.contains(p.node));
     setReferrerNode(p.referrer);
 
     const auto invitation = m_referral->invitation(participantId(), p.node);
@@ -315,9 +316,10 @@ void UplinkBackend::prepareEnroll()
     }
     if (enrolState() == Enrolling || enrolState() == Enrolled)
         return;
+    // Joining has no prerequisites beyond the node key signing the registration.
     refreshNode();
-    if (nodeIssue() != NoIssue) {
-        fail(QStringLiteral("The node isn't ready to enrol."));
+    if (nodeIssue() == ModuleUnavailable || nodeIssue() == NodeNotRunning || nodeId().isEmpty()) {
+        fail(QStringLiteral("Your node needs to be running to sign your enrolment."));
         return;
     }
 
@@ -372,6 +374,10 @@ void UplinkBackend::claimPoints()
     setLastError({});
     if (enrolState() != Enrolled || claimablePoints().toULongLong() == 0) {
         fail(QStringLiteral("Nothing to collect."));
+        return;
+    }
+    if (!nodeActive()) {
+        fail(QStringLiteral("Your node isn't an active Blend core node this epoch, so you can't collect yet."));
         return;
     }
     const auto notes = m_referral->notes(participantId());

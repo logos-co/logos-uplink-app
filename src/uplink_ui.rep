@@ -73,6 +73,7 @@ class UplinkUi
     PROP(QVariantMap signRequest READONLY)    // node.sign_message params while AwaitingSignature
     PROP(int epoch READONLY)
     PROP(int activeCount READONLY)
+    PROP(bool nodeActive READONLY)            // your own node is in this epoch's active set; Collect needs it
     PROP(QVariantList referrals READONLY)     // [{node, label, activeThisEpoch, lastPaidEpoch, pending}]
     PROP(QString claimablePoints READONLY)
     PROP(QString rewardBalance READONLY)      // collected, not yet cashed out
