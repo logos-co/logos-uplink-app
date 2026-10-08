@@ -1,0 +1,175 @@
+name: Uplink Doc-Tests
+
+# Runs the doc-test (doctests/uplink-mock-walkthrough.test.yaml) end-to-end via the
+# shared `doctest` CLI (github:logos-co/logos-doctest) on every PR and push, publishes
+# the rendered HTML report to GitHub Pages, and (for PRs) posts the link.
+#
+# Linux only: the spec keeps Uplink's data file in a scratch XDG_DATA_HOME, which
+# QStandardPaths ignores on macOS.
+#
+# One-time setup for the published links to work:
+#   Repo Settings → Pages → Source: "Deploy from a branch", Branch: gh-pages /
+#   (root). The publish-report job creates the gh-pages branch on its first run.
+
+on:
+  pull_request:
+  push:
+    branches: [master, main]
+
+concurrency:
+  group: doctests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  doctests:
+    name: uplink doc-tests (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: logos-co/setup-nix-cache-action@v1
+
+      # The spec launches a flake *ref*, not ".", because the runner executes each
+      # step in its own temp working directory. {release} is pinned to the commit
+      # under test; fork PRs blank it (their head isn't in this repo) and fall back
+      # to master. UPLINK_FLAKE stays unset, so the spec uses that ref.
+      - name: Resolve commit under test
+        id: commit
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ "${{ github.event.pull_request.head.repo.fork }}" = "true" ]; then
+            echo "sha=" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.event.pull_request.head.sha || github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run doc-tests
+        run: |
+          nix run github:logos-co/logos-doctest -- run \
+            doctests/uplink-mock-walkthrough.test.yaml \
+            --verbose \
+            --continue-on-fail \
+            --release-for logos-uplink-app=${{ steps.commit.outputs.sha }} \
+            --report "${{ runner.temp }}/doctest-report.html"
+
+      - name: Stage report for upload
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p report-out
+          if [ -f "${{ runner.temp }}/doctest-report.html" ]; then
+            cp "${{ runner.temp }}/doctest-report.html" report-out/index.html
+          else
+            echo "<h1>No report produced</h1>" > report-out/index.html
+          fi
+
+      - name: Upload execution report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: doctest-report-ubuntu-latest
+          path: report-out/index.html
+          if-no-files-found: warn
+
+  publish-report:
+    name: Publish report to GitHub Pages
+    needs: doctests
+    if: ${{ always() && github.event.pull_request.head.repo.fork != true }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    concurrency:
+      group: gh-pages-publish
+      cancel-in-progress: false
+
+    steps:
+      - name: Download all reports
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Arrange this ref's reports
+        id: arrange
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="pr-${{ github.event.pull_request.number }}"
+          else
+            BASE="main"
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+
+          found=""
+          src="artifacts/doctest-report-ubuntu-latest/index.html"
+          if [ -f "$src" ]; then
+            mkdir -p "site/$BASE/ubuntu-latest"
+            cp "$src" "site/$BASE/ubuntu-latest/index.html"
+            found="ubuntu-latest"
+          fi
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+
+          mkdir -p "site/$BASE"
+          {
+            echo "<!doctype html><meta charset=utf-8>"
+            echo "<title>logos-uplink-app doc-test report — $BASE</title>"
+            echo "<style>body{font:16px system-ui;margin:40px;max-width:680px}a{color:#2563eb}</style>"
+            echo "<h1>logos-uplink-app — $BASE</h1>"
+            echo "<p>commit <code>${GITHUB_SHA::7}</code> · <a href=\"../\">all reports</a></p><ul>"
+            [ -d "site/$BASE/ubuntu-latest" ] && echo "<li><a href=\"./ubuntu-latest/\">ubuntu-latest</a></li>"
+            echo "</ul>"
+          } > "site/$BASE/index.html"
+
+      - name: Build root index
+        if: steps.arrange.outputs.found != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          refs=""
+          if git ls-remote --exit-code --heads "https://github.com/${{ github.repository }}.git" gh-pages >/dev/null 2>&1; then
+            git clone --depth 1 --branch gh-pages "https://github.com/${{ github.repository }}.git" existing 2>/dev/null || true
+            for d in existing/main existing/pr-*; do
+              if [ -d "$d" ]; then refs="$refs"$'\n'"${d#existing/}"; fi
+            done
+          fi
+          refs="$(printf '%s\n%s\n' "$refs" "${{ steps.arrange.outputs.base }}" | sort -u | grep -v '^$' || true)"
+          {
+            echo "<!doctype html><meta charset=utf-8>"
+            echo "<title>logos-uplink-app doc-test reports</title>"
+            echo "<style>body{font:16px system-ui;margin:40px;max-width:680px}a{color:#2563eb}li{margin:.35em 0}code{background:#f3f4f6;padding:1px 5px;border-radius:4px}</style>"
+            echo "<h1>logos-uplink-app doc-test reports</h1>"
+            echo "<p>Executable doc-test reports, latest run per ref. <a href=\"https://github.com/${{ github.repository }}\">source repository</a>.</p>"
+            echo "<ul>"
+            for ref in $refs; do
+              label="$ref"; [ "$ref" = "main" ] && label="main (latest)"
+              echo "<li><a href=\"./$ref/\">$label</a></li>"
+            done
+            echo "</ul>"
+          } > site/index.html
+
+      - name: Deploy to gh-pages
+        if: steps.arrange.outputs.found != ''
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          keep_files: true
+          commit_message: "Publish uplink doc-test report for ${{ steps.arrange.outputs.base }} (${{ github.sha }})"
+
+      - name: Comment on PR with report links
+        if: ${{ github.event_name == 'pull_request' && steps.arrange.outputs.found != '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const base = "${{ steps.arrange.outputs.base }}";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const root = `https://${owner}.github.io/${repo}`;
+            const marker = "<!-- doctest-report-links -->";

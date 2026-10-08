@@ -40,6 +40,8 @@ LogosFrame {
     Flickable {
         id: terms
 
+        // Named after the view, so a test can scroll the onboarding step's and not the dialog's.
+        objectName: root.objectName !== "" ? root.objectName + "Scroll" : ""
         anchors.fill: parent
         contentHeight: termsColumn.implicitHeight
         clip: true

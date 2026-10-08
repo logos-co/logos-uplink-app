@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The mock's rules, the activity log, points, codes, and UplinkBackend against the mocks.
+  unit-tests:
+    name: Unit and backend tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: logos-co/setup-nix-cache-action@v1
+      - run: nix build -L ".#checks.$(nix eval --impure --raw --expr builtins.currentSystem).unit-tests"
+
+  # The standalone app headless on the mock backend, driven through the QML (tests/*.mjs).
+  # Linux only: the tests keep Uplink's data file in a scratch XDG_DATA_HOME, which macOS ignores.
+  ui-tests:
+    name: UI tests (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: logos-co/setup-nix-cache-action@v1
+      # As in logos-package-manager-ui: the uncached closure exhausts the hosted runner otherwise.
+      - run: nix build -L ".#checks.x86_64-linux.integration-test" --max-jobs 2 --cores 2

@@ -4,3 +4,5 @@ result-*
 build/
 generated_code/
 logos-cpp-sdk/
+doctests/outputs/
+doctests/uplink-data*/

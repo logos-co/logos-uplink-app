@@ -46,7 +46,7 @@ LogosDialog {
                                      || root.cashOutState === UplinkUi.CashingOut
                                      || root.cashOutState === UplinkUi.PreparingCode
                                      || signing
-        readonly property bool empty: Number(root.points) <= 0 && !busy && !done
+        readonly property bool empty: root.points === "0" && !busy && !done
         readonly property bool blocked: !empty && !root.nodeActive && !busy && !done
         readonly property bool ready: !empty && !blocked && !done
 
