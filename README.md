@@ -54,7 +54,8 @@ src/lez/                    ReferralService over lez_core
 src/blockchain/             NodeService over blockchain_module
 src/mock/                   in-memory implementations of both
 src/qml/Main.qml            placeholder view
-tests/                      the mock follows the LEZ program's rules
+tests/                      unit, backend and UI tests (see Build and test)
+doctests/                   the mock walkthrough, as a doc-test
 ```
 
 ### Real vs mock
@@ -80,8 +81,8 @@ for every epoch a referral was active since you last claimed. #896 currently pay
 epoch, so epochs you don't claim in are lost.
 
 It settles operations on the next poll (5 s), seeds three children when you
-register, and publishes a new epoch every 30 s. The only registered node at start is
-`MockReferralService::inviterNode()`.
+register, and publishes a new epoch every 30 s (`UPLINK_MOCK_EPOCH_MS` changes that). The only
+registered node at start is `MockReferralService::inviterNode()`.
 
 ### Invitation codes
 
@@ -93,5 +94,21 @@ hex. `src/InvitationCode.h` encodes and decodes it; a format change gets a new p
 
 ```bash
 nix build          # the plugin
-nix flake check    # unit tests
+nix flake check    # unit tests, backend tests and UI tests
 ```
+
+Three layers, all on the mock backend:
+
+- **Unit and backend tests** (`tests/*.cpp`, `checks.<system>.unit-tests`). The mock's rules, the
+  activity log, points arithmetic, codes; and `UplinkBackend` itself, driven as QML drives it:
+  joining, the node's signature, the wallet closing or switching, cashing out, getting a past
+  code again. The real services are stand-ins there (`tests/fakes/`).
+- **UI tests** (`tests/*.mjs`, `checks.<system>.integration-test`). The standalone app, headless,
+  driven through the real QML with [logos-qt-mcp](https://github.com/logos-co/logos-qt-mcp). Each
+  file is one launch with its own environment: `ui-journey.mjs` goes from the welcome page to a
+  payout code; `ui-not-ready.mjs` has no wallet and a stopped node. Against a running app:
+  `nix build .#test-framework -o result-mcp`, start the app with the file's environment, then
+  `node tests/ui-journey.mjs`.
+- **Doc-test** (`doctests/`). The same journey with screenshots, rendered to Markdown by
+  [logos-doctest](https://github.com/logos-co/logos-doctest): `doctests/run.sh` (Linux) runs it
+  against this checkout and writes `doctests/outputs/`.

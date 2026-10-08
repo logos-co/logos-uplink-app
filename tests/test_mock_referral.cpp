@@ -9,6 +9,7 @@
 #include "ActivityLog.h"
 #include "InvitationCode.h"
 #include "PayoutCode.h"
+#include "Points.h"
 #include "mock/MockReferralService.h"
 
 using namespace referral;
@@ -186,7 +187,7 @@ LOGOS_TEST(a_bad_invitation_code_decodes_to_nothing) {
     LOGOS_ASSERT_EQ(invitation_code::inviterNode(invitation_code::decode(invitation_code::encode("{}"))), QString());
 }
 
-LOGOS_TEST(activity_window_marks_active_missed_unknown_and_not_yet) {
+LOGOS_TEST(activity_window_marks_active_missed_and_unknown) {
     ActivityLog log;
     log.record(10, {"me", "a"}, {"me"});
     log.record(12, {"me", "a"}, {"me", "a"});          // 11 published while not running
@@ -200,7 +201,18 @@ LOGOS_TEST(activity_window_marks_active_missed_unknown_and_not_yet) {
     LOGOS_ASSERT_EQ(me.value(0).toInt(), int(ActivityLog::Unknown));     // before recording
     const QVariantList b = log.window("b");
     LOGOS_ASSERT_EQ(b.value(15).toInt(), int(ActivityLog::Active));
-    LOGOS_ASSERT_EQ(b.value(14).toInt(), int(ActivityLog::NotYet));
+    // Found late by the wallet's scan, so whether it was a referral then is unknown.
+    LOGOS_ASSERT_EQ(b.value(14).toInt(), int(ActivityLog::Unknown));
+}
+
+LOGOS_TEST(a_referral_found_partway_through_an_epoch_gets_that_epoch) {
+    ActivityLog log;
+    log.record(10, {"me"}, {"me", "a"});
+    LOGOS_ASSERT_TRUE(log.record(10, {"me", "a"}, {"me", "a"}));    // a turns up, same epoch
+    LOGOS_ASSERT_EQ(log.window("a").value(15).toInt(), int(ActivityLog::Active));
+    LOGOS_ASSERT_FALSE(log.record(10, {"me", "a"}, {}));            // already recorded
+    LOGOS_ASSERT_EQ(log.window("me").value(15).toInt(), int(ActivityLog::Active));
+    LOGOS_ASSERT_FALSE(log.record(9, {"me", "a", "b"}, {"b"}));     // an older epoch
 }
 
 LOGOS_TEST(activity_log_keeps_only_the_window_and_survives_a_restart) {
@@ -279,4 +291,24 @@ LOGOS_TEST(a_payout_signature_covers_the_opening_and_its_domain) {
     LOGOS_ASSERT_NE(payout, sign("lez-referral/register"));
     o.blindingFactor = "c";
     LOGOS_ASSERT_NE(payout, sign("lez-referral/payout"));
+}
+
+// u128 points as decimal strings: past 2^53 a JS Number rounds, past 2^64 toULongLong() reads 0.
+LOGOS_TEST(points_add_past_2_to_the_64) {
+    LOGOS_ASSERT_EQ(points::add("18446744073709551615", "1"), QString("18446744073709551616"));
+    LOGOS_ASSERT_EQ(points::add("9007199254740993", "0"), QString("9007199254740993"));
+    LOGOS_ASSERT_EQ(points::add("340282366920938463463374607431768211455", "0"),
+                    QString("340282366920938463463374607431768211455"));   // u128 max
+    LOGOS_ASSERT_EQ(points::add("999", "1"), QString("1000"));
+    LOGOS_ASSERT_EQ(points::add("0", "0"), QString("0"));
+}
+
+LOGOS_TEST(points_normalise_and_treat_garbage_as_zero) {
+    LOGOS_ASSERT_EQ(points::normalized("007"), QString("7"));
+    LOGOS_ASSERT_EQ(points::normalized(" 000 "), QString("0"));
+    LOGOS_ASSERT_EQ(points::normalized(""), QString("0"));
+    LOGOS_ASSERT_EQ(points::normalized("-5"), QString("0"));
+    LOGOS_ASSERT_EQ(points::normalized("1e3"), QString("0"));
+    LOGOS_ASSERT_TRUE(points::isZero("000"));
+    LOGOS_ASSERT_FALSE(points::isZero("18446744073709551616"));   // 2^64, which toULongLong() reads as 0
 }

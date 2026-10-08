@@ -19,6 +19,7 @@ Item {
     property string network: ""
     property string points: "0"
     property string cashedOut: "0"   // every receipt so far
+    property var receipts: []
     property int nodeIssue: UplinkUi.ModuleUnavailable
     property string nodeId: ""
     property bool nodeActive: false
@@ -34,6 +35,7 @@ Item {
 
     signal cashOutRequested()
     signal signAgainRequested()
+    signal payoutCodeRequested(int index)
     signal cashOutFinished()
     signal labelEdited(string node, string label)
 
@@ -162,13 +164,16 @@ Item {
                     font.weight: Theme.typography.weightBold
                     color: Theme.palette.text
                 }
-                LogosText {
+                LogosLink {
                     objectName: "uplink.cashedOut"
                     Layout.alignment: Qt.AlignRight
-                    visible: Number(root.cashedOut) > 0
+                    visible: root.receipts.length > 0
                     text: qsTr("%1 cashed out so far").arg(root.cashedOut)
-                    font.pixelSize: Theme.typography.secondaryText
-                    color: Theme.palette.textTertiary
+                    labelItem.font.pixelSize: Theme.typography.secondaryText
+                    underline: false   // until hovered
+                    linkColor: Theme.palette.textTertiary
+                    hoverColor: Theme.palette.textSecondary
+                    onActivated: cashOutsDialog.open()
                 }
             }
             LogosButton {
@@ -435,6 +440,17 @@ Item {
         onSignAgainRequested: root.signAgainRequested()
         onInviteRequested: inviteDialog.open()
         onFinished: root.cashOutFinished()
+    }
+
+    CashOutsDialog {
+        id: cashOutsDialog
+
+        anchors.centerIn: parent
+        receipts: root.receipts
+        onCodeRequested: function (index) {
+            root.payoutCodeRequested(index)
+            claimDialog.open()
+        }
     }
 
     // ---- Label dialog -------------------------------------------------------------

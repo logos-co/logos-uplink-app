@@ -14,8 +14,8 @@
 //  - a cash-out takes the whole reward balance and leaves a public receipt;
 //  - a node registers once, under a registered referrer whose invitation was imported first.
 // Operations settle on the next reconcile(). Registering seeds three children,
-// and the oracle publishes a new epoch every 30 seconds; your own node is
-// inactive every fourth epoch.
+// and the oracle publishes a new epoch every 30 seconds (UPLINK_MOCK_EPOCH_MS);
+// your own node is inactive every fourth epoch.
 class MockReferralService : public referral::ReferralService {
 public:
     explicit MockReferralService(bool walletOpen = true);
@@ -48,6 +48,11 @@ public:
     // The oracle publishes the next epoch. Child i is active unless (epoch + i) % 3 == 0;
     // every even epoch each participant gets 1 point of Credit from deeper in its tree.
     void advanceEpoch();
+
+    // What the LEZ Wallet app does to the wallet Uplink sees.
+    void setWalletOpen(bool open) { m_walletOpen = open; }
+    // Another wallet: none of the labels the last one had. The program's state stays.
+    void switchWallet() { m_labels.clear(); }
 
     // A node that is already registered, so its invitations import cleanly.
     static QString inviterNode();
@@ -93,6 +98,7 @@ private:
     QList<referral::Note> notesFor(const QString& node) const;
 
     bool m_walletOpen = true;
+    qint64 m_epochMs = 30000;
     qint64 m_syncedBlock = 0;
     QMap<QString, QString> m_labels;   // label -> account
     quint64 m_counter = 0;
