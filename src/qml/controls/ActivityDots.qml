@@ -3,7 +3,7 @@ import QtQuick
 import Logos.Theme
 
 // The last published epochs as dots, oldest first, then the epoch in progress.
-// marks: 1 active, 0 not active, -1 unknown (not recorded), -2 not a referral yet.
+// marks: 1 active, 0 not active, -1 unknown (not recorded).
 Row {
     id: root
 

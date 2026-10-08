@@ -33,6 +33,8 @@ Item {
         TermsView {
             id: terms
 
+            objectName: "uplink.terms"
+
             Layout.fillWidth: true
             Layout.fillHeight: true
         }

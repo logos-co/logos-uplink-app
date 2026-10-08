@@ -1,13 +1,17 @@
 #include "UplinkBackend.h"
 
+#include <algorithm>
+
 #include <QRandomGenerator>
 #include <QDir>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QVariantMap>
 
 #include "InvitationCode.h"
 #include "PayoutCode.h"
+#include "Points.h"
 #include "blockchain/BlockchainNodeService.h"
 #include "lez/LezReferralService.h"
 #include "mock/MockNodeService.h"
@@ -28,6 +32,9 @@ const QString kPayoutDomain = QStringLiteral("lez-referral/payout");
 
 // TODO: replace with the real payout form's URL once it exists. This is the prototype's form.
 const QString kPayoutFormUrl = QStringLiteral("https://xalisher.github.io/lx-preview/web/");
+
+// The node key is Ed25519.
+constexpr qsizetype kSignatureBytes = 64;
 
 // Names the points account in the user's LEZ wallet; also how Uplink finds it again.
 const QString kIdentityLabel = QStringLiteral("Uplink points account");
@@ -89,6 +96,22 @@ UplinkBackend::UplinkBackend(QObject* parent)
     else
         m_node = std::make_unique<BlockchainNodeService>(*this);
 
+    init();
+}
+
+UplinkBackend::UplinkBackend(std::unique_ptr<referral::ReferralService> referral,
+                             std::unique_ptr<node::NodeService> node, const QString& dataDir,
+                             QObject* parent)
+    : UplinkUiSimpleSource(parent)
+    , m_referral(std::move(referral))
+    , m_node(std::move(node))
+    , m_dataDir(dataDir)
+{
+    init();
+}
+
+void UplinkBackend::init()
+{
     setNodeIssue(ModuleUnavailable);
     setWalletIssue(LezCoreUnavailable);
     setEnrolState(NoIdentity);
@@ -97,7 +120,8 @@ UplinkBackend::UplinkBackend(QObject* parent)
     setInvitationCheck(InvitationEmpty);
     setClaimablePoints(QStringLiteral("0"));
     setRewardBalance(QStringLiteral("0"));
-    setLifetimePoints(QStringLiteral("0"));
+    setTotalPoints(QStringLiteral("0"));
+    setCashedOutPoints(QStringLiteral("0"));
 
     m_poll.setInterval(kPollMs);
     connect(&m_poll, &QTimer::timeout, this, &UplinkBackend::refresh);
@@ -166,16 +190,60 @@ void UplinkBackend::refreshWallet()
     const auto open = m_referral->walletOpen();
     setWalletIssueDetail(open.ok() ? QString() : open.error);
     setWalletIssue(!open.ok() ? LezCoreUnavailable : open.value ? WalletReady : NoWalletOpen);
-    if (walletIssue() != WalletReady || !participantId().isEmpty())
+    if (walletIssue() == NoWalletOpen)
+        forgetIdentity();
+    if (walletIssue() != WalletReady)
         return;
 
-    // An identity from an earlier session: the labelled account in this wallet.
-    const auto existing = m_referral->resolveLabel(kIdentityLabel);
-    if (!existing.ok() || existing.value.isEmpty())
+    // The identity is the labelled account in whichever wallet is open, so switching
+    // wallets in the LEZ Wallet app switches it too (or leaves none).
+    const auto labelled = m_referral->resolveLabel(kIdentityLabel);
+    if (!labelled.ok() || labelled.value.compare(participantId(), Qt::CaseInsensitive) == 0)
         return;
-    setParticipantId(existing.value);
+    if (labelled.value.isEmpty() && m_identityUnlabelled)
+        return;
+    forgetIdentity();
+    if (labelled.value.isEmpty())
+        return;
+    setParticipantId(labelled.value);
     setEnrolState(IdentityCreated);
     showIdentity();
+}
+
+// Everything tied to the points account, as if none had been found.
+void UplinkBackend::forgetIdentity()
+{
+    if (participantId().isEmpty())
+        return;
+    m_operations.clear();
+    m_registerReference.clear();
+    m_collectReference.clear();
+    m_cashOutReference.clear();
+    m_receiptsBefore.clear();
+    m_payoutOpening = {};
+    m_labels.clear();
+    m_activity = {};
+    m_activityOwner.clear();
+    m_identityUnlabelled = false;
+    setParticipantId({});
+    setIdentityLabel({});
+    setIdentityAddress({});
+    setEnrolState(NoIdentity);
+    setReferrerNode({});
+    setInvitation({});
+    setSignRequest({});
+    setNodeActive(false);
+    setMyActivity({});
+    setReferrals({});
+    setClaimablePoints(QStringLiteral("0"));
+    setRewardBalance(QStringLiteral("0"));
+    setTotalPoints(QStringLiteral("0"));
+    setCashedOutPoints(QStringLiteral("0"));
+    setReceipts({});
+    setPayoutCode({});
+    setPayoutPoints({});
+    setCashOutState(CashOutIdle);
+    publishOperations();
 }
 
 void UplinkBackend::showIdentity()
@@ -251,25 +319,25 @@ void UplinkBackend::refreshReferral()
 
     const auto claimable = m_referral->claimable(participantId());
     if (claimable.ok())
-        setClaimablePoints(claimable.value);
-    setRewardBalance(p.rewardBalance);
+        setClaimablePoints(points::normalized(claimable.value));
+    setRewardBalance(points::normalized(p.rewardBalance));
+    setTotalPoints(points::add(rewardBalance(), claimablePoints()));
 
-    // Points are u128 on chain but stay far below 2^64, so sums use quint64.
-    quint64 lifetime = p.rewardBalance.toULongLong();
-    QVariantList receipts;
     const auto cashOuts = m_referral->receipts(participantId());
     if (cashOuts.ok()) {
+        QString cashedOut = QStringLiteral("0");
+        QVariantList receipts;
         for (const referral::Receipt& r : cashOuts.value) {
-            lifetime += r.points.toULongLong();
+            cashedOut = points::add(cashedOut, r.points);
             receipts << QVariantMap{
                 {QStringLiteral("index"), r.index},
                 {QStringLiteral("account"), r.account},
-                {QStringLiteral("points"), r.points},
+                {QStringLiteral("points"), points::normalized(r.points)},
             };
         }
+        setReceipts(receipts);
+        setCashedOutPoints(cashedOut);
     }
-    setReceipts(receipts);
-    setLifetimePoints(QString::number(lifetime));
 }
 
 // The program only holds the latest published epoch, so each one is noted as it appears,
@@ -299,10 +367,11 @@ void UplinkBackend::recordActivity(const referral::Registry& registry, const QSt
 
 // Uplink's own data — activity seen and referral labels — one INI file, a section per
 // points account. None of it comes from the program.
-QString UplinkBackend::dataFile()
+QString UplinkBackend::dataFile() const
 {
-    const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
-                        + QStringLiteral("/Logos/Uplink");
+    const QString dir = !m_dataDir.isEmpty()
+        ? m_dataDir
+        : QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/Logos/Uplink");
     QDir().mkpath(dir);
     return dir + QStringLiteral("/uplink.ini");
 }
@@ -338,7 +407,7 @@ void UplinkBackend::reconcileOperations()
         const bool ok = settled.value(m_cashOutReference) == OperationSettled;
         m_cashOutReference.clear();
         if (ok)
-            preparePayoutCode();
+            prepareNewReceiptCode();
         else
             failCashOut(QStringLiteral("Cashing out was rejected."));
     }
@@ -362,6 +431,7 @@ void UplinkBackend::createIdentity()
     setEnrolState(IdentityCreated);
     // Without the label the identity can't be found again next session.
     const auto labelled = m_referral->addLabel(kIdentityLabel, created.value);
+    m_identityUnlabelled = !labelled.ok();
     if (!labelled.ok())
         fail(labelled.error);
     showIdentity();
@@ -448,16 +518,35 @@ void UplinkBackend::prepareEnroll()
     setEnrolState(AwaitingSignature);
 }
 
-void UplinkBackend::completeEnroll(QString signatureHex, QString publicKeyHex)
+void UplinkBackend::completeEnroll(QString payloadHex, QString signatureHex, QString publicKeyHex)
 {
-    setLastError({});
-    if (enrolState() != AwaitingSignature)
+    if (enrolState() != AwaitingSignature || !isCurrentSignRequest(payloadHex))
         return;
-    if (!nodeId().isEmpty() && publicKeyHex.compare(nodeId(), Qt::CaseInsensitive) != 0) {
-        fail(QStringLiteral("The signature is from a different node key."));
+    setLastError({});
+    const QString problem = checkSignature(signatureHex, publicKeyHex);
+    if (!problem.isEmpty()) {
+        fail(problem);
         return;
     }
     submitRegistration(QByteArray::fromHex(signatureHex.toLatin1()));
+}
+
+// The node app answers asynchronously, so an answer can arrive after its request was replaced.
+bool UplinkBackend::isCurrentSignRequest(const QString& payloadHex) const
+{
+    const QString current = signRequest().value(QStringLiteral("payload_hex")).toString();
+    return !current.isEmpty() && payloadHex.compare(current, Qt::CaseInsensitive) == 0;
+}
+
+// "" if the node app's answer is an Ed25519 signature from this node's key.
+QString UplinkBackend::checkSignature(const QString& signatureHex, const QString& publicKeyHex) const
+{
+    static const QRegularExpression hex(QStringLiteral("^[0-9a-fA-F]*$"));
+    if (signatureHex.size() != 2 * kSignatureBytes || !hex.match(signatureHex).hasMatch())
+        return QStringLiteral("The node app returned a malformed signature.");
+    if (!nodeId().isEmpty() && publicKeyHex.compare(nodeId(), Qt::CaseInsensitive) != 0)
+        return QStringLiteral("The signature is from a different node key.");
+    return {};
 }
 
 void UplinkBackend::submitRegistration(const QByteArray& signature)
@@ -480,8 +569,10 @@ void UplinkBackend::submitRegistration(const QByteArray& signature)
 }
 
 // Stays AwaitingSignature so the user can retry.
-void UplinkBackend::reportSignFailed(QString error)
+void UplinkBackend::reportSignFailed(QString payloadHex, QString error)
 {
+    if (enrolState() != AwaitingSignature || !isCurrentSignRequest(payloadHex))
+        return;
     fail(error == QLatin1String("cancelled") ? QStringLiteral("Signing was cancelled.")
                                              : QStringLiteral("The node app could not sign (%1).").arg(error));
 }
@@ -498,8 +589,8 @@ void UplinkBackend::cashOutAll()
         fail(QStringLiteral("Your node isn't an active Blend core node this epoch, so you can't collect yet."));
         return;
     }
-    const bool claimable = claimablePoints().toULongLong() > 0;
-    if (!claimable && rewardBalance().toULongLong() == 0) {
+    const bool claimable = !points::isZero(claimablePoints());
+    if (!claimable && points::isZero(rewardBalance())) {
         fail(QStringLiteral("No points to cash out yet."));
         return;
     }
@@ -528,6 +619,16 @@ void UplinkBackend::cashOutAll()
 
 void UplinkBackend::startCashOut()
 {
+    // So the receipt this cash-out makes can be told from the earlier ones.
+    const auto before = m_referral->receipts(participantId());
+    if (!before.ok()) {
+        failCashOut(before.error);
+        return;
+    }
+    m_receiptsBefore.clear();
+    for (const referral::Receipt& r : before.value)
+        m_receiptsBefore.insert(r.index);
+
     const QString reference = newReference();
     const auto submitted = m_referral->cashOut(reference, participantId());
     if (!submitted.ok()) {
@@ -539,25 +640,56 @@ void UplinkBackend::startCashOut()
     setCashOutState(CashingOut);
 }
 
-// The newest receipt is the one just made.
-void UplinkBackend::preparePayoutCode()
+// The receipt a cash-out made is the one that wasn't there before it. Anything but
+// exactly one, and the user picks it from their cash-outs rather than Uplink guessing.
+void UplinkBackend::prepareNewReceiptCode()
+{
+    const auto receipts = m_referral->receipts(participantId());
+    QList<quint64> fresh;
+    if (receipts.ok())
+        for (const referral::Receipt& r : receipts.value)
+            if (!m_receiptsBefore.contains(r.index))
+                fresh << r.index;
+    m_receiptsBefore.clear();
+    if (fresh.size() != 1) {
+        failCashOut(QStringLiteral("Your points are cashed out, but Uplink couldn't tell which receipt is this one. Get its code from your cash-outs."));
+        return;
+    }
+    preparePayoutCode(fresh.first());
+}
+
+// Also leaves a code being signed for another receipt.
+void UplinkBackend::payoutCodeFor(int receiptIndex)
+{
+    if (enrolState() != Enrolled || receiptIndex < 0)
+        return;
+    if (cashOutState() != CashOutIdle && cashOutState() != SigningCode && cashOutState() != CashOutDone)
+        return;
+    setLastError({});
+    setPayoutCode({});
+    preparePayoutCode(quint64(receiptIndex));
+}
+
+void UplinkBackend::preparePayoutCode(quint64 receiptIndex)
 {
     setCashOutState(PreparingCode);
     const auto receipts = m_referral->receipts(participantId());
-    if (!receipts.ok() || receipts.value.isEmpty()) {
-        failCashOut(receipts.ok() ? QStringLiteral("The cash-out receipt wasn't found.") : receipts.error);
+    if (!receipts.ok()) {
+        failCashOut(receipts.error);
         return;
     }
-    referral::Receipt newest = receipts.value.first();
-    for (const referral::Receipt& r : receipts.value)
-        if (r.index > newest.index)
-            newest = r;
-    const auto opening = m_referral->opening(participantId(), newest.index);
+    const auto receipt = std::find_if(receipts.value.cbegin(), receipts.value.cend(),
+                                      [&](const referral::Receipt& r) { return r.index == receiptIndex; });
+    if (receipt == receipts.value.cend()) {
+        failCashOut(QStringLiteral("That cash-out receipt wasn't found."));
+        return;
+    }
+    const auto opening = m_referral->opening(participantId(), receiptIndex);
     if (!opening.ok()) {
         failCashOut(opening.error);
         return;
     }
-    setPayoutPoints(newest.points);
+    setPayoutPoints(points::normalized(receipt->points));
     m_payoutOpening = opening.value;
 
     // A mock node signs on the spot; a real one goes through the node app.
@@ -575,13 +707,14 @@ void UplinkBackend::preparePayoutCode()
     setCashOutState(SigningCode);
 }
 
-void UplinkBackend::completePayoutSignature(QString signatureHex, QString publicKeyHex)
+void UplinkBackend::completePayoutSignature(QString payloadHex, QString signatureHex, QString publicKeyHex)
 {
-    setLastError({});
-    if (cashOutState() != SigningCode)
+    if (cashOutState() != SigningCode || !isCurrentSignRequest(payloadHex))
         return;
-    if (!nodeId().isEmpty() && publicKeyHex.compare(nodeId(), Qt::CaseInsensitive) != 0) {
-        fail(QStringLiteral("The signature is from a different node key."));
+    setLastError({});
+    const QString problem = checkSignature(signatureHex, publicKeyHex);
+    if (!problem.isEmpty()) {
+        fail(problem);
         return;
     }
     setPayoutCode(payout_code::encode(m_payoutOpening, signatureHex));
@@ -590,8 +723,10 @@ void UplinkBackend::completePayoutSignature(QString signatureHex, QString public
 }
 
 // The points are already cashed out; only the signature is missing, so asking again retries.
-void UplinkBackend::reportPayoutSignFailed(QString error)
+void UplinkBackend::reportPayoutSignFailed(QString payloadHex, QString error)
 {
+    if (cashOutState() != SigningCode || !isCurrentSignRequest(payloadHex))
+        return;
     fail(error == QLatin1String("cancelled") ? QStringLiteral("Signing was cancelled. Your points are cashed out; sign again to get your code.")
                                              : QStringLiteral("The node app could not sign (%1). Your points are cashed out; sign again to get your code.").arg(error));
 }
@@ -600,6 +735,8 @@ void UplinkBackend::failCashOut(const QString& error)
 {
     m_collectReference.clear();
     m_cashOutReference.clear();
+    m_receiptsBefore.clear();
+    setSignRequest({});
     setCashOutState(CashOutIdle);
     fail(error);
 }

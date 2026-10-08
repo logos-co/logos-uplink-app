@@ -10,7 +10,13 @@ using namespace referral;
 
 namespace {
 
-constexpr qint64 kEpochMs = 30000;
+// UPLINK_MOCK_EPOCH_MS shortens it, so UI tests can reach a claim without waiting minutes.
+qint64 epochMs()
+{
+    bool ok = false;
+    const qint64 ms = qEnvironmentVariable("UPLINK_MOCK_EPOCH_MS").toLongLong(&ok);
+    return ok && ms > 0 ? ms : 30000;
+}
 
 QString hexId(const QByteArray& seed)
 {
@@ -50,6 +56,7 @@ Result<T> notRegistered()
 
 MockReferralService::MockReferralService(bool walletOpen)
     : m_walletOpen(walletOpen)
+    , m_epochMs(epochMs())
 {
     m_clock.start();
     m_registry.epoch = 1;
@@ -146,7 +153,7 @@ Result<bool> MockReferralService::attachNodeSignature(const QString& participant
 
 Result<Registry> MockReferralService::registry()
 {
-    for (; m_epochsPublished < m_clock.elapsed() / kEpochMs; ++m_epochsPublished)
+    for (; m_epochsPublished < m_clock.elapsed() / m_epochMs; ++m_epochsPublished)
         advanceEpoch();
     return Result<Registry>::success(m_registry);
 }

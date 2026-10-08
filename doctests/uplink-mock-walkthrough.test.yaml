@@ -1,0 +1,391 @@
+name: "Logos Uplink: join, invite, cash out and recover a payout code (mock backend)"
+output: uplink-mock-walkthrough.md
+release: ""
+
+intro: |
+  This doc-test drives the `logos-uplink-app` standalone app **headless** through
+  everything a participant does: accept the terms, check their node and LEZ
+  wallet, join under an invitation, share their own invitation, cash out their
+  points into a payout code, and get that code again later. It launches the app
+  with `QT_QPA_PLATFORM=offscreen` and drives the real QML with
+  [`logos-qt-mcp`](https://github.com/logos-co/logos-qt-mcp), so each step goes
+  through the actual UI → `UplinkBackend` → referral service chain.
+
+  The referral program's LEZ calls don't exist yet, so the app runs on its
+  **mock backend** (`UPLINK_BACKEND=mock`): an in-memory referral program and a
+  node that is Online, a Blend core node, and signs without asking. The mock
+  follows the program's rules as Uplink assumes them (see
+  `src/mock/MockReferralService.h`): joining seeds three referrals, the oracle
+  publishes an epoch every 40 seconds here, and your own node sits out every
+  fourth epoch.
+
+what_you_build: "The Uplink standalone app on its mock backend, launched headless and driven from the welcome screen to a payout code, plus the Ready step as it looks when neither the node nor the wallet is up."
+
+what_you_learn:
+  - Why the terms can't be accepted before they have been read to the end
+  - What the Ready step checks before anyone can join, and what it shows when that fails
+  - How an invitation code is checked as you paste it
+  - What a cash-out does, and what the payout code is
+  - How to get the code for an earlier cash-out again
+
+prerequisites:
+  - |
+    **Nix** with flakes enabled. Install from [nixos.org](https://nixos.org/download.html), then enable flakes:
+
+    ```bash
+    mkdir -p ~/.config/nix
+    echo 'experimental-features = nix-command flakes' >> ~/.config/nix/nix.conf
+    ```
+
+    Verify: `nix flake --help >/dev/null 2>&1 && echo "Flakes enabled"`
+  - |
+    **A Linux machine.** The app runs headless via `QT_QPA_PLATFORM=offscreen`, so
+    no display is needed. Uplink keeps referral labels and the activity it has
+    seen under `XDG_DATA_HOME`, which this run points at a scratch directory;
+    `QStandardPaths` honours it on Linux only.
+
+sections:
+  - title: "Build the qt-mcp test driver"
+    step: true
+    text: |
+      [`logos-qt-mcp`](https://github.com/logos-co/logos-qt-mcp) connects to the
+      app's QML inspector and drives it. Build it once and link it as
+      `./result-mcp`.
+    steps:
+      - title: "Build logos-qt-mcp"
+        run: "nix build 'github:logos-co/logos-qt-mcp' -o result-mcp"
+        check_file: "result-mcp"
+
+  - title: "Keep Uplink's own data out of your real profile"
+    step: true
+    text: |
+      Uplink writes one file of its own: `Logos/Uplink/uplink.ini`, holding the
+      labels you give referrals and the epochs it has seen. Each run below gets a
+      fresh scratch directory for it.
+    steps:
+      - title: "Create the scratch data directories"
+        run: "rm -rf uplink-data uplink-data-not-ready && mkdir -p uplink-data uplink-data-not-ready && echo ok"
+        check_file: "uplink-data"
+
+  - title: "Join, invite, and cash out"
+    step: true
+    text: |
+      One run of the app, from first launch to a payout code.
+
+      `UPLINK_FLAKE` defaults to the published app; `run.sh` points it at your
+      checkout instead.
+    steps:
+      - title: "Launch on the mock backend and walk through Uplink"
+        ui_test:
+          launch: 'env UPLINK_BACKEND=mock UPLINK_MOCK_EPOCH_MS=40000 XDG_DATA_HOME="$PWD/uplink-data" nix run "${UPLINK_FLAKE:-github:logos-co/logos-uplink-app{release}}" --no-write-lock-file'
+          qt_mcp: "result-mcp"
+          build_timeout: 2400
+          launch_timeout: 2400
+          tests:
+            - name: "The app opens on the welcome page"
+              action: wait_for
+              texts: ["Logos Uplink", "Join Uplink"]
+              timeout: 60000
+              text: |
+                A new user lands here. Joining is one way in: it starts the
+                onboarding, whose first step is the program's terms.
+              screenshot: "uplink-welcome.png"
+
+            # Pages animate in; a text assertion passes as soon as the item exists,
+            # mid-transition, so every page change gets a pause before the next click.
+            - name: "Let the page settle"
+              action: sleep
+              ms: 1500
+
+            - name: "Start joining"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.joinButton"
+            - name: "Let the page settle"
+              action: sleep
+              ms: 1500
+
+            - name: "The terms come first, and can't be accepted yet"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "uplink.termsCheckbox"
+              property: "enabled"
+              value: false
+              text: |
+                The checkbox stays disabled until the terms have been scrolled
+                to the end — a user can't agree to text they never saw.
+              screenshot: "uplink-terms-unread.png"
+
+            - name: "Scroll the terms to the end"
+              action: call_method
+              find_by: "objectName"
+              find_value: "uplink.termsScroll"
+              method: "flick"
+              args: [0, -100000]
+            - name: "Let the scroll finish"
+              action: sleep
+              ms: 2000
+            - name: "Reading to the end enables the checkbox"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "uplink.termsCheckbox"
+              property: "enabled"
+              value: true
+
+            - name: "Accept the terms"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.termsCheckbox"
+            - name: "Continue is enabled once they're accepted"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "uplink.onboardingAdvanceButton"
+              property: "enabled"
+              value: true
+              screenshot: "uplink-terms-accepted.png"
+
+            - name: "Continue to the Ready step"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.onboardingAdvanceButton"
+            - name: "Let the page settle"
+              action: sleep
+              ms: 1500
+
+            - name: "The node and the wallet are both detected"
+              action: wait_for
+              texts: ["YOUR NODE (DETECTED)", "YOUR LEZ WALLET (OPEN)"]
+              timeout: 15000
+              text: |
+                Uplink needs two things before anyone joins: a running node,
+                whose key signs the join and is your identity in the program,
+                and an open LEZ wallet, which holds your points account. The
+                next section shows this step when neither is ready.
+              screenshot: "uplink-ready.png"
+
+            - name: "Continue to the Join step"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.onboardingAdvanceButton"
+            - name: "Let the page settle"
+              action: sleep
+              ms: 1500
+
+            - name: "Paste something that isn't an invitation"
+              action: set_text
+              find_by: "objectName"
+              find_value: "uplink.invitationInput"
+              value: "hello"
+            - name: "It's rejected as you paste it"
+              action: wait_for
+              texts: ["That doesn’t look like an invitation code."]
+              timeout: 5000
+              text: |
+                The code is checked as it changes, so a wrong paste says why
+                before anything is signed. A code from an inviter who hasn't
+                joined, or your own, is refused the same way.
+              screenshot: "uplink-join-invalid.png"
+
+            - name: "Paste a real invitation"
+              action: set_text
+              find_by: "objectName"
+              find_value: "uplink.invitationInput"
+              value: "uplink-invite:eyJucGsiOiI4Mzg2MDU0OTViYjBmYTIwNDVkN2MyMjJhMWNlNzllNzAyY2EzMzU2YzViNzEzMjhkMjEwMzczYzQ2YzlhMTVmIiwicGFyZW50X25vZGUiOiIxNWQzZGExMzAxM2VjYThjYjhmZTQ3OWEzY2I4OGM5NTE1Y2YwMjVjNDM3OTU5ZDZhNzNlNWE3N2JjYTNiZjNhIiwidnBrIjoiYThiYmQzZGM0MDk5ZGNjZDZhNDMwMjc5NmVhMjU5NDQ3MTYyOGNiZWVjY2ZmMjkwYjE0MTIxNDUyNTBhMmRmZiJ9"
+            - name: "The invitation is accepted"
+              action: wait_for
+              texts: ["Import invitation & sign"]
+              timeout: 5000
+              text: |
+                This is the mock's built-in inviter: a node that is already in
+                the program. Joining under it can't be changed later.
+              screenshot: "uplink-join-invitation.png"
+
+            - name: "Join"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.onboardingAdvanceButton"
+            - name: "The join lands"
+              action: wait_for
+              texts: ["UPLINK POINTS ACCOUNT"]
+              timeout: 30000
+              text: |
+                Joining creates a points account in the LEZ wallet, has the node
+                sign the registration, and submits it. Uplink checks back every
+                five seconds; once the registration has settled, this is the
+                last onboarding step.
+            - name: "Let the page settle"
+              action: sleep
+              ms: 1500
+              screenshot: "uplink-done.png"
+
+            - name: "Finish"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.onboardingAdvanceButton"
+            - name: "The overview: no points yet"
+              action: wait_for
+              texts: ["0 points", "Claim rewards", "Invite peer"]
+              timeout: 10000
+            - name: "Let the referrals load"
+              action: sleep
+              ms: 6000
+              text: |
+                The overview lists your node and each direct referral, with the
+                last 16 epochs of activity. The mock seeds three referrals when
+                you join. Points come from their activity, once the next epoch
+                is published.
+              screenshot: "uplink-overview.png"
+
+            - name: "Open the invite dialog"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.invitePeerButton"
+            - name: "Let the dialog open"
+              action: sleep
+              ms: 1000
+              text: |
+                Your own invitation. The person you invite pastes it into their
+                Join step; there's nothing for you to sign.
+              screenshot: "uplink-invite.png"
+            - name: "Close it"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.inviteCloseButton"
+
+            - name: "Points arrive with the next epoch"
+              action: wait_for
+              texts: ["3 points"]
+              timeout: 90000
+              text: |
+                In epoch 2, two of the three referrals and your own node are
+                active, and a point of credit arrives from deeper in your tree:
+                three points.
+
+            - name: "Open Claim rewards"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.claimRewardsButton"
+            - name: "Let the dialog open"
+              action: sleep
+              ms: 1000
+              text: |
+                Cashing out always takes the whole balance. It collects what your
+                referrals earned you, cashes the balance out into a receipt, and
+                has your node sign the receipt's details into a payout code.
+              screenshot: "uplink-claim.png"
+
+            - name: "Cash out"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.cashOutButton"
+            - name: "Collect and cash out settle"
+              action: wait_for
+              texts: ["3 cashed out so far"]
+              timeout: 30000
+            - name: "Let the code show"
+              action: sleep
+              ms: 1500
+              text: |
+                The payout code goes into the web claim form, where payout and
+                identity details are added. **Treat it like a password:** the
+                code carries everything needed to claim this cash-out.
+              screenshot: "uplink-payout-code.png"
+            - name: "Done"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.claimDoneButton"
+
+            - name: "Open your cash-outs"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.cashedOut"
+            - name: "Every cash-out is listed"
+              action: wait_for
+              texts: ["Your cash-outs", "Cash-out 1"]
+              timeout: 5000
+            - name: "Let the dialog open"
+              action: sleep
+              ms: 1000
+              text: |
+                If the code wasn't copied — Uplink was closed, or the signature
+                was cancelled — it can be got again from here. The node signs
+                the same receipt again, so it's the same code.
+              screenshot: "uplink-cash-outs.png"
+            - name: "Get the code again"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.cashOutCodeButton"
+            - name: "Let the code show"
+              action: sleep
+              ms: 2000
+              screenshot: "uplink-payout-code-again.png"
+
+  - title: "When the node and wallet aren't ready"
+    step: true
+    text: |
+      A second run, with no LEZ wallet open and the node stopped. The Ready step
+      names both problems, offers to open each app, and won't let the user on.
+    steps:
+      - title: "Launch with nothing ready"
+        ui_test:
+          launch: 'env UPLINK_LEZ=mock:no_wallet UPLINK_NODE=mock:not_running XDG_DATA_HOME="$PWD/uplink-data-not-ready" nix run "${UPLINK_FLAKE:-github:logos-co/logos-uplink-app{release}}" --no-write-lock-file'
+          qt_mcp: "result-mcp"
+          build_timeout: 2400
+          launch_timeout: 2400
+          tests:
+            - name: "The app opens on the welcome page"
+              action: wait_for
+              texts: ["Join Uplink"]
+              timeout: 60000
+            - name: "Let the page settle"
+              action: sleep
+              ms: 1500
+            - name: "Start joining"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.joinButton"
+            - name: "Let the page settle"
+              action: sleep
+              ms: 1500
+            - name: "Scroll the terms to the end"
+              action: call_method
+              find_by: "objectName"
+              find_value: "uplink.termsScroll"
+              method: "flick"
+              args: [0, -100000]
+            - name: "Let the scroll finish"
+              action: sleep
+              ms: 2000
+            - name: "Accept the terms"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.termsCheckbox"
+            - name: "Continue to the Ready step"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.onboardingAdvanceButton"
+            - name: "Let the page settle"
+              action: sleep
+              ms: 1500
+
+            - name: "Both problems are named"
+              action: wait_for
+              texts: ["YOUR NODE (NOT DETECTED)", "YOUR LEZ WALLET (NOT OPEN)", "Open Blockchain app", "Open LEZ Wallet"]
+              timeout: 15000
+              text: |
+                Each card says what's wrong and offers the app that fixes it.
+                In Basecamp those buttons open the Blockchain and LEZ Wallet
+                apps; the standalone app has no shell to open them in.
+              screenshot: "uplink-not-ready.png"
+            - name: "…and the user can't continue"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "uplink.onboardingAdvanceButton"
+              property: "enabled"
+              value: false
+            - name: "The footer says why"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "uplink.onboardingAdvanceHint"
+              property: "text"
+              value: "Your node and LEZ wallet need to be ready."

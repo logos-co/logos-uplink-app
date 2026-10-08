@@ -69,27 +69,30 @@ Rectangle {
 
         // The node app signs on the user's approval; the shell brings them back here.
         // Used for the join and for the payout code.
+        // The answer names its request's payload, so the backend can drop one that's been replaced.
         function requestNodeSignature(onSigned, onFailed) {
+            const request = d.backend.signRequest
+            const payload = request.payload_hex
             if (!d.canRequest()) {
-                onFailed("unavailable")
+                onFailed(payload, "unavailable")
                 return
             }
-            logos.request("node.sign_message", d.backend.signRequest, function (res) {
+            logos.request("node.sign_message", request, function (res) {
                 if (res.ok)
-                    onSigned(res.data.signature, res.data.public_key)
+                    onSigned(payload, res.data.signature, res.data.public_key)
                 else
-                    onFailed(res.error)
+                    onFailed(payload, res.error)
             })
         }
 
         function requestSignature() {
-            d.requestNodeSignature(function (sig, key) { d.backend.completeEnroll(sig, key) },
-                                   function (error) { d.backend.reportSignFailed(error) })
+            d.requestNodeSignature(function (payload, sig, key) { d.backend.completeEnroll(payload, sig, key) },
+                                   function (payload, error) { d.backend.reportSignFailed(payload, error) })
         }
 
         function requestPayoutSignature() {
-            d.requestNodeSignature(function (sig, key) { d.backend.completePayoutSignature(sig, key) },
-                                   function (error) { d.backend.reportPayoutSignFailed(error) })
+            d.requestNodeSignature(function (payload, sig, key) { d.backend.completePayoutSignature(payload, sig, key) },
+                                   function (payload, error) { d.backend.reportPayoutSignFailed(payload, error) })
         }
 
         // A hand-off: the shell opens the app, or offers to install it, and leaves the user there.
@@ -159,8 +162,9 @@ Rectangle {
 
         OverviewPage {
             network: d.backend ? d.backend.chainId : ""
-            points: d.backend ? String(Number(d.backend.rewardBalance) + Number(d.backend.claimablePoints)) : "0"
-            cashedOut: d.backend ? String(Number(d.backend.lifetimePoints) - Number(d.backend.rewardBalance)) : "0"
+            points: d.backend ? d.backend.totalPoints : "0"
+            cashedOut: d.backend ? d.backend.cashedOutPoints : "0"
+            receipts: d.backend ? d.backend.receipts : []
             nodeIssue: d.backend ? d.backend.nodeIssue : UplinkUi.ModuleUnavailable
             nodeId: d.backend ? d.backend.nodeId : ""
             nodeActive: d.backend ? d.backend.nodeActive : false
@@ -175,6 +179,7 @@ Rectangle {
             payoutFormUrl: d.backend ? d.backend.payoutFormUrl : ""
             onCashOutRequested: d.backend.cashOutAll()
             onSignAgainRequested: d.requestPayoutSignature()
+            onPayoutCodeRequested: function (index) { d.backend.payoutCodeFor(index) }
             onCashOutFinished: d.backend.finishCashOut()
             onLabelEdited: function (node, label) { d.backend.setReferralLabel(node, label) }
         }
@@ -216,6 +221,11 @@ Rectangle {
             case UplinkUi.Enrolled:
                 if (pages.currentIndex !== d.onboardingPage)
                     d.showJoinedIfEnrolled()
+                break
+            case UplinkUi.NoIdentity:
+                // The wallet was closed or switched to one that hasn't joined.
+                if (pages.currentIndex === d.overviewPage)
+                    pages.currentIndex = d.welcomePage
                 break
             }
         }
