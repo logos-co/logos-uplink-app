@@ -278,19 +278,18 @@ LOGOS_TEST(a_payout_code_recomputes_to_its_receipt) {
     LOGOS_ASSERT_NE(receipts.at(0).account, receipts.at(1).account);   // a fresh factor per receipt
 }
 
-// The node signs the opening under the payout domain, so a join signature can't pass for it.
-LOGOS_TEST(a_payout_signature_covers_the_opening_and_its_domain) {
+// The mock node's stand-in signature differs per intent and per value.
+LOGOS_TEST(a_mock_signature_covers_the_intent_and_its_values) {
     MockNodeService node;
-    referral::Opening o;
-    o.programAccount = "p"; o.node = "n"; o.blindingFactor = "b";
-    const auto sign = [&](const QString& domain) {
-        return QString::fromLatin1(node.signWithoutPrompt(domain, payout_code::signedPayload(o)).value.toHex());
+    QVariantMap params{{"program_account", "p"}, {"blinding_factor", "b"}};
+    const auto sign = [&](const QString& intent) {
+        return node.answerSignRequest({{"intent", intent}, {"params", params}}).value("signature").toString();
     };
-    const QString payout = sign("lez-referral/payout");
+    const QString payout = sign("node.sign_referral_payout");
     LOGOS_ASSERT_EQ(payout.size(), 128);   // 64 bytes
-    LOGOS_ASSERT_NE(payout, sign("lez-referral/register"));
-    o.blindingFactor = "c";
-    LOGOS_ASSERT_NE(payout, sign("lez-referral/payout"));
+    LOGOS_ASSERT_NE(payout, sign("node.sign_referral_enrolment"));
+    params["blinding_factor"] = "c";
+    LOGOS_ASSERT_NE(payout, sign("node.sign_referral_payout"));
 }
 
 // u128 points as decimal strings: past 2^53 a JS Number rounds, past 2^64 toULongLong() reads 0.

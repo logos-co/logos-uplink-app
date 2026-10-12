@@ -15,7 +15,7 @@ namespace payout_code {
 
 inline const QString kPrefix = QStringLiteral("uplink-payout-v2:");
 
-// What the node signs: the opening, as compact JSON with sorted keys.
+// The opening as the code carries it: compact JSON with sorted keys.
 inline QByteArray signedPayload(const referral::Opening& opening)
 {
     const QJsonObject o{

@@ -15,7 +15,8 @@
     {"name": "blockchain_module", "version": ">=0.3.0"}
   ],
   "uses": [
-    {"intent": "node.sign_message", "cardinality": "single"},
+    {"intent": "node.sign_referral_enrolment", "cardinality": "single"},
+    {"intent": "node.sign_referral_payout", "cardinality": "single"},
     {"intent": "basecamp.apps.launch", "cardinality": "single"}
   ],
   "codegen": {

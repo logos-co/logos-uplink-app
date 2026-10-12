@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QVariantMap>
+
 #include "interfaces/NodeService.h"
 
 // A node that is Online and core, unless told to report a problem.
@@ -11,7 +13,9 @@ public:
     static node::Issue issueFromName(const QString& name);
 
     node::Status status() override;
-    Result<QByteArray> signWithoutPrompt(const QString& domain, const QByteArray& payload) override;
+    // Stands in for the node app, which nothing answers for in mock mode: what it would
+    // answer a signRequest ({ref, intent, params}) with, { signature, public_key }.
+    QVariantMap answerSignRequest(const QVariantMap& request) const;
 
     void setIssue(node::Issue issue) { m_issue = issue; }
 

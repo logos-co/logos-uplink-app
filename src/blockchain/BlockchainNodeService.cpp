@@ -78,7 +78,3 @@ node::Status BlockchainNodeService::status()
     return s;
 }
 
-Result<QByteArray> BlockchainNodeService::signWithoutPrompt(const QString&, const QByteArray&)
-{
-    return Result<QByteArray>::failure(QStringLiteral("the node app signs, on the user's approval"));
-}

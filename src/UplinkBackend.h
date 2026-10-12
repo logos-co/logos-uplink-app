@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QSet>
 #include <QTimer>
+#include <functional>
 #include <memory>
 
 #include "ActivityLog.h"
@@ -18,11 +19,15 @@ class UplinkBackend : public UplinkUiSimpleSource, public LogosUiPluginContext {
 
 public:
     explicit UplinkBackend(QObject* parent = nullptr);
+    // Mock mode's stand-in for the node app: answers a signRequest with { signature, public_key }.
+    using MockNodeApp = std::function<QVariantMap(const QVariantMap& signRequest)>;
+
     // For tests: services handed in rather than picked by UPLINK_BACKEND, and Uplink's
-    // own file kept in `dataDir` (macOS ignores XDG_DATA_HOME).
+    // own file kept in `dataDir` (macOS ignores XDG_DATA_HOME). Without `mockNodeApp`,
+    // a signRequest waits for completeEnroll / completePayoutSignature, as with the real app.
     UplinkBackend(std::unique_ptr<referral::ReferralService> referral,
                   std::unique_ptr<node::NodeService> node, const QString& dataDir,
-                  QObject* parent = nullptr);
+                  MockNodeApp mockNodeApp = {}, QObject* parent = nullptr);
     ~UplinkBackend() override;
 
     void onContextReady() override;
@@ -33,13 +38,13 @@ public slots:
     void checkInvitation(QString code) override;
     void joinUnder(QString code) override;
     void prepareEnroll() override;
-    void completeEnroll(QString payloadHex, QString signatureHex, QString publicKeyHex) override;
-    void reportSignFailed(QString payloadHex, QString error) override;
+    void completeEnroll(QString requestRef, QString signatureHex, QString publicKeyHex) override;
+    void reportSignFailed(QString requestRef, QString error) override;
     void cashOutAll() override;
     void payoutCodeFor(int receiptIndex) override;
     void finishCashOut() override;
-    void completePayoutSignature(QString payloadHex, QString signatureHex, QString publicKeyHex) override;
-    void reportPayoutSignFailed(QString payloadHex, QString error) override;
+    void completePayoutSignature(QString requestRef, QString signatureHex, QString publicKeyHex) override;
+    void reportPayoutSignFailed(QString requestRef, QString error) override;
     void setReferralLabel(QString node, QString label) override;
 
 private:
@@ -54,7 +59,8 @@ private:
     void refreshWallet();
     void showIdentity();
     void forgetIdentity();
-    bool isCurrentSignRequest(const QString& payloadHex) const;
+    void askNodeApp(const QString& intent, const QVariantMap& params);
+    bool isCurrentSignRequest(const QString& requestRef) const;
     QString checkSignature(const QString& signatureHex, const QString& publicKeyHex) const;
     void syncWallet();
     QString dataFile() const;
@@ -73,6 +79,7 @@ private:
 
     std::unique_ptr<referral::ReferralService> m_referral;
     std::unique_ptr<node::NodeService> m_node;
+    MockNodeApp m_mockNodeApp;
 
     QMap<QString, Operation> m_operations;           // reference -> operation
     QString m_registerReference;
