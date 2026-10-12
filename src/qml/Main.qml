@@ -69,30 +69,30 @@ Rectangle {
 
         // The node app signs on the user's approval; the shell brings them back here.
         // Used for the join and for the payout code.
-        // The answer names its request's payload, so the backend can drop one that's been replaced.
+        // The answer names its request, so the backend can drop one that's been replaced.
         function requestNodeSignature(onSigned, onFailed) {
             const request = d.backend.signRequest
-            const payload = request.payload_hex
+            const ref = request.ref
             if (!d.canRequest()) {
-                onFailed(payload, "unavailable")
+                onFailed(ref, "unavailable")
                 return
             }
-            logos.request("node.sign_message", request, function (res) {
+            logos.request(request.intent, request.params, function (res) {
                 if (res.ok)
-                    onSigned(payload, res.data.signature, res.data.public_key)
+                    onSigned(ref, res.data.signature, res.data.public_key)
                 else
-                    onFailed(payload, res.error)
+                    onFailed(ref, res.error)
             })
         }
 
         function requestSignature() {
-            d.requestNodeSignature(function (payload, sig, key) { d.backend.completeEnroll(payload, sig, key) },
-                                   function (payload, error) { d.backend.reportSignFailed(payload, error) })
+            d.requestNodeSignature(function (ref, sig, key) { d.backend.completeEnroll(ref, sig, key) },
+                                   function (ref, error) { d.backend.reportSignFailed(ref, error) })
         }
 
         function requestPayoutSignature() {
-            d.requestNodeSignature(function (payload, sig, key) { d.backend.completePayoutSignature(payload, sig, key) },
-                                   function (payload, error) { d.backend.reportPayoutSignFailed(payload, error) })
+            d.requestNodeSignature(function (ref, sig, key) { d.backend.completePayoutSignature(ref, sig, key) },
+                                   function (ref, error) { d.backend.reportPayoutSignFailed(ref, error) })
         }
 
         // A hand-off: the shell opens the app, or offers to install it, and leaves the user there.

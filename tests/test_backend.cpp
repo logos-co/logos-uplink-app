@@ -26,7 +26,7 @@ public:
     Result<Participant> participant(const QString& p) override { return m->participant(p); }
     Result<QString> invitation(const QString& p, const QString& n) override { return m->invitation(p, n); }
     Result<QString> importInvitation(const QString& p, const QString& b) override { return m->importInvitation(p, b); }
-    Result<QByteArray> prepareRegistration(const QString& p, const QString& n, const QString& r) override { return m->prepareRegistration(p, n, r); }
+    Result<QString> prepareRegistration(const QString& p, const QString& n, const QString& r) override { return m->prepareRegistration(p, n, r); }
     Result<bool> attachNodeSignature(const QString& p, const QByteArray& s) override { return m->attachNodeSignature(p, s); }
     Result<Registry> registry() override { return m->registry(); }
     Result<QList<Note>> notes(const QString& p) override { return m->notes(p); }
@@ -49,27 +49,15 @@ private:
     std::shared_ptr<MockReferralService> m;
 };
 
-// The mock node, but signing only through the node app (as the real one does) when `prompts`:
-// the backend then publishes a signRequest and waits for completeEnroll / completePayoutSignature.
+// The mock node, plus what the node app answers for a signRequest.
 class TestNode : public node::NodeService {
 public:
-    explicit TestNode(bool prompts, node::Issue issue = node::Issue::None) : m_prompts(prompts), m_mock(issue) {}
+    explicit TestNode(node::Issue issue = node::Issue::None) : m_mock(issue) {}
     node::Status status() override { return m_mock.status(); }
-    Result<QByteArray> signWithoutPrompt(const QString& domain, const QByteArray& payload) override
-    {
-        if (m_prompts)
-            return Result<QByteArray>::failure(QStringLiteral("the node app signs"));
-        return m_mock.signWithoutPrompt(domain, payload);
-    }
-    // What the node app answers for a signRequest.
-    QString signHex(const QVariantMap& request)
-    {
-        const QByteArray payload = QByteArray::fromHex(request.value("payload_hex").toString().toLatin1());
-        return QString::fromLatin1(m_mock.signWithoutPrompt(request.value("domain").toString(), payload).value.toHex());
-    }
+    QVariantMap answer(const QVariantMap& request) const { return m_mock.answerSignRequest(request); }
+    QString signHex(const QVariantMap& request) const { return answer(request).value("signature").toString(); }
 
 private:
-    bool m_prompts;
     MockNodeService m_mock;
 };
 
@@ -84,10 +72,16 @@ struct Harness {
     void start(bool nodePrompts = false, node::Issue issue = node::Issue::None)
     {
         backend.reset();
-        auto n = std::make_unique<TestNode>(nodePrompts, issue);
+        auto n = std::make_unique<TestNode>(issue);
         node = n.get();
+        // As in mock mode, the mock node app answers at once; `nodePrompts` leaves the
+        // signRequest for the test to answer, as the real node app does.
+        UplinkBackend::MockNodeApp app;
+        if (!nodePrompts)
+            app = [n = node](const QVariantMap& request) { return n->answer(request); };
         // Uplink's own file (labels, activity) goes to a fresh place per test.
-        backend = std::make_unique<UplinkBackend>(std::make_unique<SharedReferral>(lez), std::move(n), data.path());
+        backend = std::make_unique<UplinkBackend>(std::make_unique<SharedReferral>(lez), std::move(n), data.path(),
+                                                  std::move(app));
         backend->refresh();
     }
 
@@ -97,7 +91,7 @@ struct Harness {
         backend->createIdentity();
         backend->prepareEnroll();
         if (backend->enrolState() == B::AwaitingSignature)
-            backend->completeEnroll(payload(), node->signHex(backend->signRequest()), backend->nodeId());
+            backend->completeEnroll(ref(), node->signHex(backend->signRequest()), backend->nodeId());
         backend->refresh();   // the registration settles
         return backend->enrolState() == B::Enrolled;
     }
@@ -110,7 +104,7 @@ struct Harness {
         backend->refresh();   // CashOut settles, the code is prepared
     }
 
-    QString payload() const { return backend->signRequest().value("payload_hex").toString(); }
+    QString ref() const { return backend->signRequest().value("ref").toString(); }
 
     QTemporaryDir data;
     std::shared_ptr<MockReferralService> lez;
@@ -188,16 +182,31 @@ LOGOS_TEST(backend_finds_its_identity_again_after_a_restart) {
 
 // ---- The node's signature -----------------------------------------------------------
 
+// Uplink only names the values; the node app builds the message from them and its own key.
+LOGOS_TEST(backend_asks_the_node_app_to_sign_the_enrolment) {
+    Harness h(true);
+    h.backend->createIdentity();
+    h.backend->prepareEnroll();
+    const QVariantMap request = h.backend->signRequest();
+    LOGOS_ASSERT_EQ(request.value("intent").toString(), QString("node.sign_referral_enrolment"));
+    LOGOS_ASSERT_FALSE(h.ref().isEmpty());
+    const QVariantMap params = request.value("params").toMap();
+    LOGOS_ASSERT_EQ(params.keys(), QStringList({"participant_account", "program", "referrer"}));
+    LOGOS_ASSERT_FALSE(params.value("program").toString().isEmpty());
+    LOGOS_ASSERT_EQ(params.value("participant_account").toString(), h.backend->participantId());
+    LOGOS_ASSERT_EQ(params.value("referrer").toString(), QString());
+}
+
 LOGOS_TEST(backend_ignores_a_signature_for_another_request) {
     Harness h(true);
     h.backend->createIdentity();
     h.backend->prepareEnroll();
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));
     const QString signature = h.node->signHex(h.backend->signRequest());
-    h.backend->completeEnroll("00ff", signature, h.backend->nodeId());
+    h.backend->completeEnroll("stale", signature, h.backend->nodeId());
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));
     LOGOS_ASSERT_EQ(h.backend->lastError(), QString());
-    h.backend->completeEnroll(h.payload(), signature, h.backend->nodeId());
+    h.backend->completeEnroll(h.ref(), signature, h.backend->nodeId());
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolling));
 }
 
@@ -205,9 +214,9 @@ LOGOS_TEST(backend_ignores_a_failure_for_another_request) {
     Harness h(true);
     h.backend->createIdentity();
     h.backend->prepareEnroll();
-    h.backend->reportSignFailed("00ff", "cancelled");
+    h.backend->reportSignFailed("stale", "cancelled");
     LOGOS_ASSERT_EQ(h.backend->lastError(), QString());
-    h.backend->reportSignFailed(h.payload(), "cancelled");
+    h.backend->reportSignFailed(h.ref(), "cancelled");
     LOGOS_ASSERT_EQ(h.backend->lastError(), QString("Signing was cancelled."));
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));   // can sign again
 }
@@ -217,7 +226,7 @@ LOGOS_TEST(backend_refuses_a_malformed_signature) {
     h.backend->createIdentity();
     h.backend->prepareEnroll();
     for (const QString& bad : {QString("abcd"), QString(128, QLatin1Char('z')), QString(130, QLatin1Char('a'))}) {
-        h.backend->completeEnroll(h.payload(), bad, h.backend->nodeId());
+        h.backend->completeEnroll(h.ref(), bad, h.backend->nodeId());
         LOGOS_ASSERT_TRUE(h.backend->lastError().contains("malformed"));
         LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));
     }
@@ -227,7 +236,7 @@ LOGOS_TEST(backend_refuses_a_signature_from_another_key) {
     Harness h(true);
     h.backend->createIdentity();
     h.backend->prepareEnroll();
-    h.backend->completeEnroll(h.payload(), h.node->signHex(h.backend->signRequest()), strangerNode());
+    h.backend->completeEnroll(h.ref(), h.node->signHex(h.backend->signRequest()), strangerNode());
     LOGOS_ASSERT_TRUE(h.backend->lastError().contains("different node key"));
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));
 }
@@ -372,6 +381,20 @@ LOGOS_TEST(backend_reports_a_receipt_that_does_not_exist) {
     LOGOS_ASSERT_TRUE(h.backend->lastError().contains("wasn't found"));
 }
 
+LOGOS_TEST(backend_asks_the_node_app_to_sign_the_payout_code) {
+    Harness h(true);
+    LOGOS_ASSERT_TRUE(h.enrol());
+    h.lez->advanceEpoch();
+    h.backend->refresh();
+    h.cashOut();
+    const QVariantMap request = h.backend->signRequest();
+    LOGOS_ASSERT_EQ(request.value("intent").toString(), QString("node.sign_referral_payout"));
+    const QVariantMap params = request.value("params").toMap();
+    LOGOS_ASSERT_EQ(params.keys(), QStringList({"blinding_factor", "program_account"}));
+    LOGOS_ASSERT_FALSE(params.value("program_account").toString().isEmpty());
+    LOGOS_ASSERT_FALSE(params.value("blinding_factor").toString().isEmpty());
+}
+
 LOGOS_TEST(backend_payout_signing_waits_for_the_current_request) {
     Harness h(true);
     LOGOS_ASSERT_TRUE(h.enrol());
@@ -380,11 +403,11 @@ LOGOS_TEST(backend_payout_signing_waits_for_the_current_request) {
     h.cashOut();
     LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::SigningCode));
     const QString signature = h.node->signHex(h.backend->signRequest());
-    h.backend->reportPayoutSignFailed(h.payload(), "cancelled");
+    h.backend->reportPayoutSignFailed(h.ref(), "cancelled");
     LOGOS_ASSERT_TRUE(h.backend->lastError().contains("sign again"));
-    h.backend->completePayoutSignature("00ff", signature, h.backend->nodeId());
+    h.backend->completePayoutSignature("stale", signature, h.backend->nodeId());
     LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::SigningCode));
-    h.backend->completePayoutSignature(h.payload(), signature, h.backend->nodeId());
+    h.backend->completePayoutSignature(h.ref(), signature, h.backend->nodeId());
     LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashOutDone));
     LOGOS_ASSERT_EQ(payout_code::signature(h.backend->payoutCode()), signature);
 }

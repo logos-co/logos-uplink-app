@@ -60,8 +60,8 @@ public:
     virtual Result<QString> invitation(const QString& participant, const QString& node) = 0;
     // Returns the inviting node. Must come before prepareRegistration.
     virtual Result<QString> importInvitation(const QString& participant, const QString& blob) = 0;
-    // Returns the ParticipantAuthorizationV1 message the node key signs.
-    virtual Result<QByteArray> prepareRegistration(const QString& participant, const QString& node,
+    // Checks the registration can go ahead; returns the program the node's enrolment names.
+    virtual Result<QString> prepareRegistration(const QString& participant, const QString& node,
                                                    const QString& referrer) = 0;
     virtual Result<bool> attachNodeSignature(const QString& participant, const QByteArray& signature) = 0;
     virtual Result<Registry> registry() = 0;

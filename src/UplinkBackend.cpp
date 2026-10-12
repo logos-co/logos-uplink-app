@@ -24,11 +24,11 @@ namespace {
 constexpr int kPollMs = 5000;
 constexpr qint64 kSyncChunk = 100;   // blocks per step, as the LEZ Wallet app does
 
-// The `domain` the node signs the registration under. Placeholder until LEZ#896
-// and logos-blockchain-module#108 agree on one.
-const QString kRegisterDomain = QStringLiteral("lez-referral/register");
-// The domain for signing a payout code, so a join signature can never pass as one.
-const QString kPayoutDomain = QStringLiteral("lez-referral/payout");
+
+// What Uplink asks the node app to sign. Each intent takes named values; the node app builds
+// the message from them and its own key, and answers with the signature.
+const QString kEnrolmentIntent = QStringLiteral("node.sign_referral_enrolment");
+const QString kPayoutIntent = QStringLiteral("node.sign_referral_payout");
 
 // TODO: replace with the real payout form's URL once it exists. This is the prototype's form.
 const QString kPayoutFormUrl = QStringLiteral("https://xalisher.github.io/lx-preview/web/");
@@ -91,9 +91,11 @@ UplinkBackend::UplinkBackend(QObject* parent)
 
     // real (default) | mock | mock:<issue>
     const QString node = backendFor("UPLINK_NODE");
-    if (node.section(':', 0, 0) == QLatin1String("mock"))
-        m_node = std::make_unique<MockNodeService>(MockNodeService::issueFromName(node.section(':', 1)));
-    else
+    if (node.section(':', 0, 0) == QLatin1String("mock")) {
+        auto mock = std::make_unique<MockNodeService>(MockNodeService::issueFromName(node.section(':', 1)));
+        m_mockNodeApp = [n = mock.get()](const QVariantMap& request) { return n->answerSignRequest(request); };
+        m_node = std::move(mock);
+    } else
         m_node = std::make_unique<BlockchainNodeService>(*this);
 
     init();
@@ -101,10 +103,11 @@ UplinkBackend::UplinkBackend(QObject* parent)
 
 UplinkBackend::UplinkBackend(std::unique_ptr<referral::ReferralService> referral,
                              std::unique_ptr<node::NodeService> node, const QString& dataDir,
-                             QObject* parent)
+                             MockNodeApp mockNodeApp, QObject* parent)
     : UplinkUiSimpleSource(parent)
     , m_referral(std::move(referral))
     , m_node(std::move(node))
+    , m_mockNodeApp(std::move(mockNodeApp))
     , m_dataDir(dataDir)
 {
     init();
@@ -500,27 +503,45 @@ void UplinkBackend::prepareEnroll()
         return;
     }
 
-    const auto prepared = m_referral->prepareRegistration(participantId(), nodeId(), referrerNode());
-    if (!prepared.ok()) {
-        fail(prepared.error);
+    const auto program = m_referral->prepareRegistration(participantId(), nodeId(), referrerNode());
+    if (!program.ok()) {
+        fail(program.error);
         return;
     }
-    // A mock node signs on the spot; a real one goes through the node app.
-    const auto signedNow = m_node->signWithoutPrompt(kRegisterDomain, prepared.value);
-    if (signedNow.ok()) {
-        submitRegistration(signedNow.value);
-        return;
-    }
-    setSignRequest({
-        {QStringLiteral("domain"), kRegisterDomain},
-        {QStringLiteral("payload_hex"), QString::fromLatin1(prepared.value.toHex())},
-    });
+    const QVariantMap params{
+        {QStringLiteral("program"), program.value},
+        {QStringLiteral("participant_account"), participantId()},
+        {QStringLiteral("referrer"), referrerNode()},
+    };
     setEnrolState(AwaitingSignature);
+    askNodeApp(kEnrolmentIntent, params);
 }
 
-void UplinkBackend::completeEnroll(QString payloadHex, QString signatureHex, QString publicKeyHex)
+// QML sends signRequest as the intent and answers through complete* or report*. In mock mode
+// nothing answers the intent, so the mock node app answers here, through the same slots.
+void UplinkBackend::askNodeApp(const QString& intent, const QVariantMap& params)
 {
-    if (enrolState() != AwaitingSignature || !isCurrentSignRequest(payloadHex))
+    const QVariantMap request{
+        {QStringLiteral("ref"), newReference()},
+        {QStringLiteral("intent"), intent},
+        {QStringLiteral("params"), params},
+    };
+    setSignRequest(request);
+    if (!m_mockNodeApp)
+        return;
+    const QVariantMap answer = m_mockNodeApp(request);
+    const QString ref = request.value(QStringLiteral("ref")).toString();
+    const QString signature = answer.value(QStringLiteral("signature")).toString();
+    const QString publicKey = answer.value(QStringLiteral("public_key")).toString();
+    if (intent == kEnrolmentIntent)
+        completeEnroll(ref, signature, publicKey);
+    else
+        completePayoutSignature(ref, signature, publicKey);
+}
+
+void UplinkBackend::completeEnroll(QString requestRef, QString signatureHex, QString publicKeyHex)
+{
+    if (enrolState() != AwaitingSignature || !isCurrentSignRequest(requestRef))
         return;
     setLastError({});
     const QString problem = checkSignature(signatureHex, publicKeyHex);
@@ -532,10 +553,10 @@ void UplinkBackend::completeEnroll(QString payloadHex, QString signatureHex, QSt
 }
 
 // The node app answers asynchronously, so an answer can arrive after its request was replaced.
-bool UplinkBackend::isCurrentSignRequest(const QString& payloadHex) const
+bool UplinkBackend::isCurrentSignRequest(const QString& requestRef) const
 {
-    const QString current = signRequest().value(QStringLiteral("payload_hex")).toString();
-    return !current.isEmpty() && payloadHex.compare(current, Qt::CaseInsensitive) == 0;
+    const QString current = signRequest().value(QStringLiteral("ref")).toString();
+    return !current.isEmpty() && requestRef == current;
 }
 
 // "" if the node app's answer is an Ed25519 signature from this node's key.
@@ -569,9 +590,9 @@ void UplinkBackend::submitRegistration(const QByteArray& signature)
 }
 
 // Stays AwaitingSignature so the user can retry.
-void UplinkBackend::reportSignFailed(QString payloadHex, QString error)
+void UplinkBackend::reportSignFailed(QString requestRef, QString error)
 {
-    if (enrolState() != AwaitingSignature || !isCurrentSignRequest(payloadHex))
+    if (enrolState() != AwaitingSignature || !isCurrentSignRequest(requestRef))
         return;
     fail(error == QLatin1String("cancelled") ? QStringLiteral("Signing was cancelled.")
                                              : QStringLiteral("The node app could not sign (%1).").arg(error));
@@ -692,24 +713,16 @@ void UplinkBackend::preparePayoutCode(quint64 receiptIndex)
     setPayoutPoints(points::normalized(receipt->points));
     m_payoutOpening = opening.value;
 
-    // A mock node signs on the spot; a real one goes through the node app.
-    const QByteArray payload = payout_code::signedPayload(m_payoutOpening);
-    const auto signedNow = m_node->signWithoutPrompt(kPayoutDomain, payload);
-    if (signedNow.ok()) {
-        setPayoutCode(payout_code::encode(m_payoutOpening, QString::fromLatin1(signedNow.value.toHex())));
-        setCashOutState(CashOutDone);
-        return;
-    }
-    setSignRequest({
-        {QStringLiteral("domain"), kPayoutDomain},
-        {QStringLiteral("payload_hex"), QString::fromLatin1(payload.toHex())},
-    });
     setCashOutState(SigningCode);
+    askNodeApp(kPayoutIntent, {
+        {QStringLiteral("program_account"), m_payoutOpening.programAccount},
+        {QStringLiteral("blinding_factor"), m_payoutOpening.blindingFactor},
+    });
 }
 
-void UplinkBackend::completePayoutSignature(QString payloadHex, QString signatureHex, QString publicKeyHex)
+void UplinkBackend::completePayoutSignature(QString requestRef, QString signatureHex, QString publicKeyHex)
 {
-    if (cashOutState() != SigningCode || !isCurrentSignRequest(payloadHex))
+    if (cashOutState() != SigningCode || !isCurrentSignRequest(requestRef))
         return;
     setLastError({});
     const QString problem = checkSignature(signatureHex, publicKeyHex);
@@ -723,9 +736,9 @@ void UplinkBackend::completePayoutSignature(QString payloadHex, QString signatur
 }
 
 // The points are already cashed out; only the signature is missing, so asking again retries.
-void UplinkBackend::reportPayoutSignFailed(QString payloadHex, QString error)
+void UplinkBackend::reportPayoutSignFailed(QString requestRef, QString error)
 {
-    if (cashOutState() != SigningCode || !isCurrentSignRequest(payloadHex))
+    if (cashOutState() != SigningCode || !isCurrentSignRequest(requestRef))
         return;
     fail(error == QLatin1String("cancelled") ? QStringLiteral("Signing was cancelled. Your points are cashed out; sign again to get your code.")
                                              : QStringLiteral("The node app could not sign (%1). Your points are cashed out; sign again to get your code.").arg(error));

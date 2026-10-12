@@ -32,7 +32,7 @@ Result<QString> LezReferralService::createParticipant() { return unavailable<QSt
 Result<Participant> LezReferralService::participant(const QString&) { return unavailable<Participant>(); }
 Result<QString> LezReferralService::invitation(const QString&, const QString&) { return unavailable<QString>(); }
 Result<QString> LezReferralService::importInvitation(const QString&, const QString&) { return unavailable<QString>(); }
-Result<QByteArray> LezReferralService::prepareRegistration(const QString&, const QString&, const QString&) { return unavailable<QByteArray>(); }
+Result<QString> LezReferralService::prepareRegistration(const QString&, const QString&, const QString&) { return unavailable<QString>(); }
 Result<bool> LezReferralService::attachNodeSignature(const QString&, const QByteArray&) { return unavailable<bool>(); }
 Result<Registry> LezReferralService::registry() { return unavailable<Registry>(); }
 Result<QList<Note>> LezReferralService::notes(const QString&) { return unavailable<QList<Note>>(); }

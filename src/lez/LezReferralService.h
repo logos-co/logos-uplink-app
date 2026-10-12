@@ -16,7 +16,7 @@ public:
     Result<referral::Participant> participant(const QString& participant) override;
     Result<QString> invitation(const QString& participant, const QString& node) override;
     Result<QString> importInvitation(const QString& participant, const QString& blob) override;
-    Result<QByteArray> prepareRegistration(const QString& participant, const QString& node,
+    Result<QString> prepareRegistration(const QString& participant, const QString& node,
                                            const QString& referrer) override;
     Result<bool> attachNodeSignature(const QString& participant, const QByteArray& signature) override;
     Result<referral::Registry> registry() override;
