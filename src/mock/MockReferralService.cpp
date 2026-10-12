@@ -116,26 +116,25 @@ Result<QString> MockReferralService::importInvitation(const QString& participant
     return Result<QString>::success(parent);
 }
 
-Result<QByteArray> MockReferralService::prepareRegistration(const QString& participant, const QString& node,
+Result<QString> MockReferralService::prepareRegistration(const QString& participant, const QString& node,
                                                             const QString& referrer)
 {
     if (!m_accounts.contains(participant))
-        return Result<QByteArray>::failure(QStringLiteral("unknown participant"));
+        return Result<QString>::failure(QStringLiteral("unknown participant"));
     Account& account = m_accounts[participant];
     if (!referrer.isEmpty() && account.invitedBy != referrer)
-        return Result<QByteArray>::failure(
+        return Result<QString>::failure(
             QStringLiteral("the referrer's invitation is needed before its registration"));
     if (account.registered)
-        return Result<QByteArray>::failure(QStringLiteral("this participant is already registered"));
+        return Result<QString>::failure(QStringLiteral("this participant is already registered"));
     if (account.hasPending && (account.pending.node != node || account.pending.referrer != referrer))
-        return Result<QByteArray>::failure(
+        return Result<QString>::failure(
             QStringLiteral("a pending registration for another node or referrer is unresolved"));
     if (!account.hasPending) {
         account.hasPending = true;
         account.pending = {node, referrer, {}};
     }
-    return Result<QByteArray>::success(
-        QStringLiteral("mock-authorization|%1|%2|%3").arg(participant, node, referrer).toUtf8());
+    return Result<QString>::success(programAccount());
 }
 
 Result<bool> MockReferralService::attachNodeSignature(const QString& participant, const QByteArray& signature)

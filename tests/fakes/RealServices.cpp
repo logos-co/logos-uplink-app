@@ -21,7 +21,7 @@ Result<QString> LezReferralService::createParticipant() { return absent<QString>
 Result<Participant> LezReferralService::participant(const QString&) { return absent<Participant>(); }
 Result<QString> LezReferralService::invitation(const QString&, const QString&) { return absent<QString>(); }
 Result<QString> LezReferralService::importInvitation(const QString&, const QString&) { return absent<QString>(); }
-Result<QByteArray> LezReferralService::prepareRegistration(const QString&, const QString&, const QString&) { return absent<QByteArray>(); }
+Result<QString> LezReferralService::prepareRegistration(const QString&, const QString&, const QString&) { return absent<QString>(); }
 Result<bool> LezReferralService::attachNodeSignature(const QString&, const QByteArray&) { return absent<bool>(); }
 Result<Registry> LezReferralService::registry() { return absent<Registry>(); }
 Result<QList<Note>> LezReferralService::notes(const QString&) { return absent<QList<Note>>(); }
@@ -42,4 +42,3 @@ Result<bool> LezReferralService::syncToBlock(qint64) { return absent<bool>(); }
 
 BlockchainNodeService::BlockchainNodeService(LogosUiPluginContext& context) : m_context(context) {}
 node::Status BlockchainNodeService::status() { return {}; }
-Result<QByteArray> BlockchainNodeService::signWithoutPrompt(const QString&, const QByteArray&) { return absent<QByteArray>(); }
