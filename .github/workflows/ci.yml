@@ -23,7 +23,8 @@ jobs:
       - uses: logos-co/setup-nix-cache-action@v1
       - run: nix build -L ".#checks.$(nix eval --impure --raw --expr builtins.currentSystem).unit-tests"
 
-  # The standalone app headless on the mock backend, driven through the QML (tests/*.mjs).
+  # Basecamp's standalone mode headless on the mock backend, driven through the QML
+  # (tests/*.mjs) — `nix run .#ui-tests`, which fetches Basecamp at run time.
   # Linux only: the tests keep Uplink's data file in a scratch XDG_DATA_HOME, which macOS ignores.
   ui-tests:
     name: UI tests (ubuntu-latest)
@@ -32,4 +33,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: logos-co/setup-nix-cache-action@v1
       # As in logos-package-manager-ui: the uncached closure exhausts the hosted runner otherwise.
-      - run: nix build -L ".#checks.x86_64-linux.integration-test" --max-jobs 2 --cores 2
+      - run: nix run .#ui-tests --max-jobs 2 --cores 2
