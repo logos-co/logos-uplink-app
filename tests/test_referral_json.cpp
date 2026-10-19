@@ -38,6 +38,8 @@ LOGOS_TEST(a_participant_shows_the_last_epoch_settled_per_child) {
     LOGOS_ASSERT_EQ(p.value.children.value("cc"), quint32(7));
     LOGOS_ASSERT_EQ(p.value.children.value("dd"), quint32(0));
     LOGOS_ASSERT_TRUE(referral_json::participant(R"({"ok":true,"registered":false})").error.contains("not registered"));
+    const auto joined = referral_json::participant(R"({"ok":true,"registered":true,"node":"aa","children":{"cc":[[0,5]]},"childrenSince":{"cc":4}})");
+    LOGOS_ASSERT_EQ(joined.value.since.value("cc"), quint32(4));
 }
 
 LOGOS_TEST(operations_map_to_pending_settled_or_their_error) {
@@ -68,6 +70,7 @@ LOGOS_TEST(registry_activity_notes_receipts_and_terms_read_through) {
     LOGOS_ASSERT_EQ(notes.value.size(), 2);
     LOGOS_ASSERT_TRUE(notes.value.at(0).kind == Note::Child);
     LOGOS_ASSERT_EQ(notes.value.at(0).node, QString("c"));
+    LOGOS_ASSERT_EQ(notes.value.at(0).since, quint32(2));
     LOGOS_ASSERT_TRUE(notes.value.at(1).kind == Note::Credit);
     LOGOS_ASSERT_EQ(notes.value.at(1).amount, QString("4"));
 

@@ -98,6 +98,9 @@ inline Result<referral::Participant> participant(const QString& json)
             last = qMax(last, quint32(range.toArray().at(1).toInteger()));
         p.children.insert(it.key(), last);
     }
+    const QJsonObject since = r.value.value(QStringLiteral("childrenSince")).toObject();
+    for (auto it = since.begin(); it != since.end(); ++it)
+        p.since.insert(it.key(), quint32(it.value().toInteger()));
     return Result<referral::Participant>::success(p);
 }
 
@@ -153,6 +156,7 @@ inline Result<QList<referral::Note>> notes(const QString& json)
         note.kind = o.value(QStringLiteral("kind")).toString() == QLatin1String("credit") ? referral::Note::Credit
                                                                                          : referral::Note::Child;
         note.node = o.value(QStringLiteral("node")).toString();
+        note.since = quint32(o.value(QStringLiteral("since")).toInteger());
         note.amount = o.value(QStringLiteral("amount")).toString(QStringLiteral("0"));
         notes << note;
     }

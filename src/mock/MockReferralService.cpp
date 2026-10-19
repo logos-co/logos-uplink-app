@@ -63,9 +63,10 @@ quint64 applyClaim(Participant& p, quint32 epoch, const QMap<quint32, QStringLis
 {
     quint64 total = 0;
     for (const Note& note : notes) {
-        if (note.kind == Note::Child && !p.children.contains(note.node))
-            p.children.insert(note.node, 0);
-        else if (note.kind == Note::Credit)
+        if (note.kind == Note::Child && !p.children.contains(note.node)) {
+            p.children.insert(note.node, note.since > 0 ? note.since - 1 : 0);   // pays from the epoch it joined
+            p.since.insert(note.node, note.since);
+        } else if (note.kind == Note::Credit)
             total += note.amount.toULongLong();
     }
     for (auto it = p.children.begin(); it != p.children.end(); ++it) {
@@ -399,6 +400,7 @@ Status MockReferralService::settle(Operation& operation)
             note.account = nextId("note");
             note.kind = Note::Child;
             note.node = child;
+            note.since = m_registry.epoch;
             addNote(note, account.state.node);
         }
         return Status::Settled;
