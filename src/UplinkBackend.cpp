@@ -9,6 +9,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QPointer>
 #include <QRandomGenerator>
 #include <QSettings>
 #include <QStandardPaths>
@@ -17,6 +18,7 @@
 
 #include "Points.h"
 #include "blockchain/BlockchainNodeService.h"
+#include "devnet/DevnetNodeService.h"
 #include "lez/LezReferralService.h"
 #include "mock/MockNodeService.h"
 #include "mock/MockReferralService.h"
@@ -139,10 +141,12 @@ UplinkBackend::UplinkBackend(QObject* parent)
     } else
         m_referral = std::make_unique<LezReferralService>(*this);
 
-    // real (default) | mock | mock:<issue>
+    // real (default) | mock | mock:<issue> | devnet:<node API URL> (UPLINK_NODE_ID: its provider_id)
     const QString node = backendFor("UPLINK_NODE");
     if (node.section(':', 0, 0) == QLatin1String("mock"))
         m_node = std::make_unique<MockNodeService>(MockNodeService::issueFromName(node.section(':', 1)));
+    else if (node.startsWith(QLatin1String("devnet:")))
+        m_node = std::make_unique<DevnetNodeService>(QUrl(node.mid(7)), qEnvironmentVariable("UPLINK_NODE_ID"));
     else
         m_node = std::make_unique<BlockchainNodeService>(*this);
 
@@ -221,6 +225,9 @@ void UplinkBackend::setReleaseDeployment(const QString& chainId, const QString& 
 
 void UplinkBackend::refresh()
 {
+    // uplink_module answers one call at a time, and is busy with the send.
+    if (m_sending)
+        return;
     refreshNode();
     applyDeployment();
     checkKeystore();
@@ -499,19 +506,30 @@ void UplinkBackend::refreshReferral()
         setInvitation(invitation.value);
 
     QStringList referralNodes = p.children.keys();
+    QMap<QString, quint32> joined = p.since;   // child node -> the epoch it joined in, where known
     const auto notes = m_referral->notes(participantId());
     if (notes.ok())
         for (const referral::Note& note : notes.value)
-            if (note.kind == referral::Note::Child && !referralNodes.contains(note.node))
-                referralNodes << note.node;
+            if (note.kind == referral::Note::Child) {
+                if (!referralNodes.contains(note.node))
+                    referralNodes << note.node;
+                if (note.since > 0 && !joined.contains(note.node))
+                    joined.insert(note.node, note.since);
+            }
 
     // The module knows each published epoch's active set (live, or from the indexer).
     const auto activity = m_referral->activity(QStringList{p.node} + referralNodes, kActivityEpochs);
+    // -2 marks an epoch before the node joined, so the strip starts where it did.
     auto marks = [&](const QString& node) {
         QVariantList list;
-        if (activity.ok())
-            for (int mark : activity.value.nodes.value(node))
-                list << mark;
+        if (!activity.ok())
+            return list;
+        const QList<int> nodeMarks = activity.value.nodes.value(node);
+        for (int i = 0; i < nodeMarks.size(); ++i) {
+            const bool before = joined.contains(node) && i < activity.value.epochs.size()
+                                && activity.value.epochs.at(i) < joined.value(node);
+            list << (before ? -2 : nodeMarks.at(i));
+        }
         return list;
     };
     setMyActivity(marks(p.node));
@@ -525,6 +543,8 @@ void UplinkBackend::refreshReferral()
             {QStringLiteral("lastPaidEpoch"), lastPaid},
             {QStringLiteral("pending"), pending},   // announced, not yet taken in by a claim
             {QStringLiteral("activity"), marks(node)},
+            {QStringLiteral("joinedEpoch"), joined.value(node, 0)},   // 0 = unknown
+            {QStringLiteral("joinedAgo"), joined.contains(node) ? int(registry.value.epoch) - int(joined.value(node)) : -1},
         };
     };
     for (auto it = p.children.cbegin(); it != p.children.cend(); ++it)
@@ -576,18 +596,24 @@ void UplinkBackend::loadLabels()
 // Claim needs no Blend key (the wallet signs it), so it can run in the background.
 void UplinkBackend::autoClaimIfDue()
 {
-    if (!autoClaim() || enrolState() != Enrolled || cashOutState() != CashOutIdle
+    if (!autoClaim() || enrolState() != Enrolled || cashOutState() != CashOutIdle || m_sending
             || hasPendingOperation() || points::isZero(claimablePoints()))
         return;
-    const auto reference = m_referral->autoClaim(participantId());
-    if (!reference.ok()) {
-        fail(reference.error);
-        return;
-    }
-    if (reference.value.isEmpty())
-        return;
-    m_operations.insert(reference.value, {QStringLiteral("claim"), OperationPending});
-    publishOperations();
+    m_sending = true;
+    QPointer<UplinkBackend> self(this);
+    m_referral->autoClaimAsync(participantId(), [self](Result<QString> reference) {
+        if (!self)
+            return;
+        self->m_sending = false;
+        if (!reference.ok()) {
+            self->fail(reference.error);
+            return;
+        }
+        if (reference.value.isEmpty())
+            return;
+        self->m_operations.insert(reference.value, {QStringLiteral("claim"), OperationPending});
+        self->publishOperations();
+    });
 }
 
 // Uplink's own data — referral labels and settings — one INI file. None of it comes from the program.
@@ -741,12 +767,23 @@ void UplinkBackend::enrol()
         return;
     }
 
+    // Joining shows while the transaction is proved and sent, which can take minutes.
     const QString reference = newReference();
-    const auto submitted = m_referral->enrol(reference, participantId(), keystorePath(), nodeId());
-    if (!track(QStringLiteral("register"), submitted, reference))
-        return;
-    m_registerReference = reference;
+    const int before = enrolState();
     setEnrolState(Enrolling);
+    m_sending = true;
+    QPointer<UplinkBackend> self(this);
+    m_referral->enrolAsync(reference, participantId(), keystorePath(), nodeId(),
+                           [self, reference, before](Result<referral::Status> submitted) {
+        if (!self)
+            return;
+        self->m_sending = false;
+        if (!self->track(QStringLiteral("register"), submitted, reference)) {
+            self->setEnrolState(before);
+            return;
+        }
+        self->m_registerReference = reference;
+    });
 }
 
 // One action for the user: collect what's claimable, cash the whole balance out, then
@@ -763,6 +800,10 @@ void UplinkBackend::cashOutAll()
     }
     if (points::isZero(claimablePoints()) && points::isZero(rewardBalance())) {
         fail(QStringLiteral("No points to cash out yet."));
+        return;
+    }
+    if (m_sending) {
+        fail(QStringLiteral("A collection is still being sent. Try again in a moment."));
         return;
     }
     // An auto-claim still settling becomes this cash-out's collect step: it moves on when it lands.
@@ -794,13 +835,19 @@ void UplinkBackend::startCollecting()
         return;
     }
     const QString reference = newReference();
-    const auto submitted = m_referral->claim(reference, participantId());
-    if (!track(QStringLiteral("claim"), submitted, reference)) {
-        failCashOut(lastError());
-        return;
-    }
-    m_collectReference = reference;
     setCashOutState(Collecting);
+    m_sending = true;
+    QPointer<UplinkBackend> self(this);
+    m_referral->claimAsync(reference, participantId(), [self, reference](Result<referral::Status> submitted) {
+        if (!self)
+            return;
+        self->m_sending = false;
+        if (!self->track(QStringLiteral("claim"), submitted, reference)) {
+            self->failCashOut(self->lastError());
+            return;
+        }
+        self->m_collectReference = reference;
+    });
 }
 
 void UplinkBackend::startCashOut()
@@ -816,13 +863,20 @@ void UplinkBackend::startCashOut()
         m_receiptsBefore.insert(r.index);
 
     const QString reference = newReference();
-    const auto submitted = m_referral->cashOut(reference, participantId(), keystorePath());
-    if (!track(QStringLiteral("cash_out"), submitted, reference)) {
-        failCashOut(lastError());
-        return;
-    }
-    m_cashOutReference = reference;
     setCashOutState(CashingOut);
+    m_sending = true;
+    QPointer<UplinkBackend> self(this);
+    m_referral->cashOutAsync(reference, participantId(), keystorePath(),
+                             [self, reference](Result<referral::Status> submitted) {
+        if (!self)
+            return;
+        self->m_sending = false;
+        if (!self->track(QStringLiteral("cash_out"), submitted, reference)) {
+            self->failCashOut(self->lastError());
+            return;
+        }
+        self->m_cashOutReference = reference;
+    });
 }
 
 // The receipt a cash-out made is the one that wasn't there before it. Anything but

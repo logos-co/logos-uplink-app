@@ -6,3 +6,4 @@ generated_code/
 logos-cpp-sdk/
 doctests/outputs/
 doctests/uplink-data*/
+.logos-basecamp-dev/

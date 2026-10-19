@@ -60,6 +60,7 @@ StepPage {
     }
 
     InfoCard {
+        objectName: "uplink.nodeCard"
         title: d.nodeDetected ? qsTr("YOUR NODE (DETECTED)") : qsTr("YOUR NODE (NOT DETECTED)")
         status: d.nodeDetected ? qsTr("Online") : ""
         detail: d.shortId(root.nodeId)

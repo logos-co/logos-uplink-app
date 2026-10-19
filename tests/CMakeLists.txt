@@ -11,16 +11,19 @@ logos_test(
         ../src/UplinkBackend.cpp
         ../src/mock/MockReferralService.cpp
         ../src/mock/MockNodeService.cpp
+        ../src/devnet/DevnetNodeService.cpp
         fakes/RealServices.cpp
     TEST_SOURCES
         main.cpp
         test_mock_referral.cpp
         test_referral_json.cpp
         test_backend.cpp
+        test_devnet_node.cpp
     EXTRA_INCLUDES
         ${CMAKE_CURRENT_SOURCE_DIR}/../src
 )
 
-find_package(Qt6 REQUIRED COMPONENTS RemoteObjects)
+find_package(Qt6 REQUIRED COMPONENTS RemoteObjects Network)
+target_link_libraries(uplink_ui_tests PRIVATE Qt6::Network)
 qt6_add_repc_sources(uplink_ui_tests ../src/uplink_ui.rep)
 target_include_directories(uplink_ui_tests BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/fakes)

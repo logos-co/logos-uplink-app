@@ -35,6 +35,12 @@ public:
     Result<QList<referral::Receipt>> receipts(const QString& participant, const QString& keystorePath) override;
     Result<QString> payoutCode(const QString& participant, quint64 index, const QString& keystorePath) override;
     Result<referral::Status> status(const QString& reference) override;
+    void enrolAsync(const QString& reference, const QString& participant, const QString& keystorePath,
+                    const QString& node, Done<referral::Status> done) override;
+    void claimAsync(const QString& reference, const QString& participant, Done<referral::Status> done) override;
+    void autoClaimAsync(const QString& participant, Done<QString> done) override;
+    void cashOutAsync(const QString& reference, const QString& participant, const QString& keystorePath,
+                      Done<referral::Status> done) override;
 
     Result<bool> walletOpen() override;
     Result<QString> resolveLabel(const QString& label) override;
