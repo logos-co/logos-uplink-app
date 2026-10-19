@@ -17,6 +17,20 @@ Result<T> notConnected(const char* module)
     return Result<T>::failure(QStringLiteral("%1 is not connected").arg(QLatin1String(module)));
 }
 
+// Proving takes as long as it takes on commodity hardware: wait indefinitely, as the LEZ Wallet
+// app does for private transfers. uplink_module bounds its own wait on lez_core.
+const Timeout kSendTimeout(-1);
+
+// The module's reply read by `parse`, or the call's own error (a timeout, the module gone).
+template <typename T>
+std::function<void(logos::AsyncResult<QString>)> replyTo(ReferralService::Done<T> done,
+                                                         Result<T> (*parse)(const QString&))
+{
+    return [done = std::move(done), parse](logos::AsyncResult<QString> r) {
+        done(r.ok() ? parse(r.value) : Result<T>::failure(QString::fromStdString(r.error.message)));
+    };
+}
+
 } // namespace
 
 LezReferralService::LezReferralService(LogosUiPluginContext& context)
@@ -181,6 +195,44 @@ Result<Status> LezReferralService::status(const QString& reference)
 }
 
 #undef REFERRAL
+
+void LezReferralService::enrolAsync(const QString& reference, const QString& participant,
+                                    const QString& keystorePath, const QString& node, Done<Status> done)
+{
+    if (!connected("uplink_module"))
+        return done(notConnected<Status>("uplink_module"));
+    m_context.modules().uplink_module.enrolAsyncResult(reference, participant, keystorePath, node,
+                                                         replyTo(std::move(done), referral_json::operationStatus),
+                                                         kSendTimeout);
+}
+
+void LezReferralService::claimAsync(const QString& reference, const QString& participant, Done<Status> done)
+{
+    if (!connected("uplink_module"))
+        return done(notConnected<Status>("uplink_module"));
+    m_context.modules().uplink_module.claimAsyncResult(reference, participant,
+                                                         replyTo(std::move(done), referral_json::operationStatus),
+                                                         kSendTimeout);
+}
+
+void LezReferralService::autoClaimAsync(const QString& participant, Done<QString> done)
+{
+    if (!connected("uplink_module"))
+        return done(notConnected<QString>("uplink_module"));
+    m_context.modules().uplink_module.auto_claimAsyncResult(participant,
+                                                              replyTo(std::move(done), referral_json::autoClaimReference),
+                                                              kSendTimeout);
+}
+
+void LezReferralService::cashOutAsync(const QString& reference, const QString& participant,
+                                      const QString& keystorePath, Done<Status> done)
+{
+    if (!connected("uplink_module"))
+        return done(notConnected<Status>("uplink_module"));
+    m_context.modules().uplink_module.cash_outAsyncResult(reference, participant, keystorePath,
+                                                            replyTo(std::move(done), referral_json::operationStatus),
+                                                            kSendTimeout);
+}
 
 // ---- lez_core: the wallet ----------------------------------------------------------
 

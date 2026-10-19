@@ -93,6 +93,7 @@ private:
     QString m_releaseChain;                          // "" = any chain
     QString m_releaseProgram;                        // "" = the module's own choice
     bool m_deploymentApplied = false;
+    bool m_sending = false;                          // a transaction is being proved and sent
     QTimer m_poll;
     bool m_syncing = false;
     qint64 m_syncTarget = 0;
