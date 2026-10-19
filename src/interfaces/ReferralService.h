@@ -24,6 +24,7 @@ struct Participant {
     QString node;
     QString referrer;                 // "" = root of its own tree
     QMap<QString, quint32> children;  // child node -> last epoch settled for it (0 = none yet)
+    QMap<QString, quint32> since;     // child node -> the epoch it joined in, where known
     QString rewardBalance = QStringLiteral("0");
 };
 
@@ -33,6 +34,7 @@ struct Note {
     QString account;
     Kind kind = Child;
     QString node;                     // Child: the child's node
+    quint32 since = 0;                // Child: the epoch it joined in
     QString amount = QStringLiteral("0");  // Credit
 };
 
