@@ -416,4 +416,4 @@ sections:
               find_by: "objectName"
               find_value: "uplink.onboardingAdvanceHint"
               property: "text"
-              value: "Your node and LEZ wallet need to be ready."
+              value: "Your node and your LEZ wallet need to be ready."
