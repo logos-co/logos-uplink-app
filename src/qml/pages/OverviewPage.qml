@@ -289,13 +289,12 @@ Item {
                             maxWidth: 260
                             cellDelegate: activityCell
                         },
-                        // Node and Status share the spare width, so a wide screen
-                        // doesn't push Status to the far edge.
+                        // Node takes the spare width; Status sits at the right edge.
                         LogosTableColumn {
                             title: qsTr("Status")
                             minWidth: 200
-                            preferredWidth: 240
-                            fillWidth: true
+                            preferredWidth: 280
+                            alignment: Qt.AlignRight | Qt.AlignVCenter
                             cellDelegate: statusCell
                         },
                         LogosTableColumn {
@@ -441,6 +440,8 @@ Item {
 
             spacing: Theme.spacing.small
 
+            // Right-aligned, as the column is.
+            Item { Layout.fillWidth: true }
             LogosBadge {
                 Layout.alignment: Qt.AlignVCenter
                 text: statusCellRoot.r.statusText
@@ -453,8 +454,6 @@ Item {
                 font.pixelSize: Theme.typography.secondaryText
                 color: Theme.palette.textTertiary
             }
-            // Keeps the note beside the badge; a row with nothing to fill spreads its items.
-            Item { Layout.fillWidth: true }
         }
     }
 

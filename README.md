@@ -55,6 +55,7 @@ src/lez/                    ReferralService over uplink_module and lez_core
   ReferralJson.h              uplink_module's replies, read (tested without the SDK)
 src/blockchain/             NodeService over blockchain_module
 src/devnet/                 NodeService over an uplink devnet node's HTTP API (testing)
+scripts/devnet-keystore.sh  a keystore.yaml for a devnet node
 src/mock/                   in-memory implementations of both
 src/qml/Main.qml            placeholder view
 tests/                      unit, backend and UI tests (see Build and test)
@@ -102,6 +103,31 @@ balance, and a keystore for another node is refused. Its node's keystore is chos
 It settles operations on the next poll (5 s), seeds three children when you
 register, and publishes a new epoch every 30 s (`UPLINK_MOCK_EPOCH_MS` changes that). The only
 registered node at start is `MockReferralService::inviterNode()`.
+
+### Testing against the uplink devnet
+
+[logos-blockchain/uplink](https://github.com/logos-blockchain/uplink)'s devnet (`just devnet up`)
+runs four nodes, the LEZ sequencer and indexer, and the oracle in Docker. Basecamp's own node
+can't join it, so for testing Uplink reads one of its nodes over HTTP as "your node"; everything
+else is real: uplink_module, lez_core and the devnet's program.
+
+1. In the uplink checkout: `just devnet up`, then make node 1 a Blend node with
+   `just devnet blend-join 1`. It joins the membership two epochs (80 s) later.
+2. Write a keystore for node 1: `scripts/devnet-keystore.sh <uplink>/devnet/state/config/node-1`.
+   It prints the file and node 1's provider ID.
+3. Note the devnet's program account: `cat <uplink>/devnet/state/program`. It changes on
+   every `just devnet reset`. `metadata.json` ships no program (none is deployed on a public
+   network yet), so Uplink leaves the choice to the module, which reads `UPLINK_PROGRAM`.
+4. In the LEZ Wallet app, use the sequencer at `http://127.0.0.1:3040`.
+5. Start Uplink against node 1:
+   ```bash
+   UPLINK_PROGRAM=<program account> UPLINK_NODE=devnet:http://127.0.0.1:18081 \
+     UPLINK_NODE_ID=<node 1's provider ID> nix run .
+   ```
+   Nodes 0–3 serve their API on ports 18080–18083. On joining, choose the keystore from step 2.
+
+Points need node 1 and the nodes under it active in a published epoch: the oracle publishes the
+Blend membership node 0 sees (`just devnet blend-status`), and `just devnet dashboard` shows it.
 
 ### The Blend key and auto-claim
 
