@@ -506,19 +506,30 @@ void UplinkBackend::refreshReferral()
         setInvitation(invitation.value);
 
     QStringList referralNodes = p.children.keys();
+    QMap<QString, quint32> joined = p.since;   // child node -> the epoch it joined in, where known
     const auto notes = m_referral->notes(participantId());
     if (notes.ok())
         for (const referral::Note& note : notes.value)
-            if (note.kind == referral::Note::Child && !referralNodes.contains(note.node))
-                referralNodes << note.node;
+            if (note.kind == referral::Note::Child) {
+                if (!referralNodes.contains(note.node))
+                    referralNodes << note.node;
+                if (note.since > 0 && !joined.contains(note.node))
+                    joined.insert(note.node, note.since);
+            }
 
     // The module knows each published epoch's active set (live, or from the indexer).
     const auto activity = m_referral->activity(QStringList{p.node} + referralNodes, kActivityEpochs);
+    // -2 marks an epoch before the node joined, so the strip starts where it did.
     auto marks = [&](const QString& node) {
         QVariantList list;
-        if (activity.ok())
-            for (int mark : activity.value.nodes.value(node))
-                list << mark;
+        if (!activity.ok())
+            return list;
+        const QList<int> nodeMarks = activity.value.nodes.value(node);
+        for (int i = 0; i < nodeMarks.size(); ++i) {
+            const bool before = joined.contains(node) && i < activity.value.epochs.size()
+                                && activity.value.epochs.at(i) < joined.value(node);
+            list << (before ? -2 : nodeMarks.at(i));
+        }
         return list;
     };
     setMyActivity(marks(p.node));
@@ -532,6 +543,8 @@ void UplinkBackend::refreshReferral()
             {QStringLiteral("lastPaidEpoch"), lastPaid},
             {QStringLiteral("pending"), pending},   // announced, not yet taken in by a claim
             {QStringLiteral("activity"), marks(node)},
+            {QStringLiteral("joinedEpoch"), joined.value(node, 0)},   // 0 = unknown
+            {QStringLiteral("joinedAgo"), joined.contains(node) ? int(registry.value.epoch) - int(joined.value(node)) : -1},
         };
     };
     for (auto it = p.children.cbegin(); it != p.children.cend(); ++it)

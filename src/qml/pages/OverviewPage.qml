@@ -68,8 +68,20 @@ Item {
             return id.length > 20 ? id.slice(0, 10) + "…" + id.slice(-8) : id
         }
 
+        // When a referral joined: "joined epoch 1234 · 5 epochs ago"; "" when unknown.
+        function joinedText(r) {
+            if (!r.joinedEpoch)
+                return ""
+            const ago = r.joinedAgo <= 0 ? qsTr("this epoch")
+                      : r.joinedAgo === 1 ? qsTr("1 epoch ago")
+                      : qsTr("%1 epochs ago").arg(r.joinedAgo)
+            return qsTr("joined epoch %1 · %2").arg(r.joinedEpoch).arg(ago)
+        }
+
         // From the newest recorded epochs: how the node has been doing lately.
         function status(marks) {
+            if (marks && marks.length > 0 && marks[marks.length - 1] === -2)
+                return { text: qsTr("Just joined"), color: String(Theme.palette.textTertiary) }
             if (!marks || marks.length === 0 || marks[marks.length - 1] === -1)
                 return { text: qsTr("No data yet"), color: String(Theme.palette.textTertiary) }
             if (marks[marks.length - 1] === 1)
@@ -88,7 +100,7 @@ Item {
             const me = status(root.myActivity)
             next.push({
                 node: root.nodeId, mine: true, name: qsTr("My node"), labelled: true,
-                sub: shortId(root.nodeId), marks: (root.myActivity || []).join(","),
+                sub: shortId(root.nodeId), joined: "", marks: (root.myActivity || []).join(","),
                 statusText: me.text, statusColor: me.color,
                 // Only epochs your own node was active in pay for your referrals.
                 note: root.nodeActive ? qsTr("earning this epoch") : qsTr("not earning this epoch"),
@@ -97,7 +109,7 @@ Item {
                 const st = status(r.activity)
                 next.push({
                     node: r.node, mine: false, name: r.label || shortId(r.node), labelled: r.label !== "",
-                    sub: r.label ? shortId(r.node) : "", marks: (r.activity || []).join(","),
+                    sub: r.label ? shortId(r.node) : "", joined: joinedText(r), marks: (r.activity || []).join(","),
                     statusText: st.text, statusColor: st.color, note: "",
                 })
             }
@@ -114,7 +126,7 @@ Item {
 
         // What a cell reads while LogosTable tears its row down and rowItem is null.
         readonly property var emptyRow: ({
-            node: "", mine: true, name: "", labelled: false, sub: "", marks: "",
+            node: "", mine: true, name: "", labelled: false, sub: "", joined: "", marks: "",
             statusText: "", statusColor: "transparent", note: "",
         })
 
@@ -315,6 +327,7 @@ Item {
                     LegendItem { mark: 1; text: qsTr("Active") }
                     LegendItem { mark: 0; text: qsTr("Not active") }
                     LegendItem { mark: -1; text: qsTr("Not recorded") }
+                    LegendItem { mark: -2; text: qsTr("Not joined yet") }
                     LegendItem { current: true; text: qsTr("Current epoch") }
                 }
             }
@@ -363,6 +376,15 @@ Item {
                     visible: nodeCellRoot.r.sub !== ""
                     elide: Text.ElideRight
                     text: nodeCellRoot.r.sub
+                    font.pixelSize: Theme.typography.secondaryText
+                    color: Theme.palette.textTertiary
+                }
+                LogosText {
+                    objectName: "uplink.referralJoined"
+                    Layout.fillWidth: true
+                    visible: nodeCellRoot.r.joined !== ""
+                    elide: Text.ElideRight
+                    text: nodeCellRoot.r.joined
                     font.pixelSize: Theme.typography.secondaryText
                     color: Theme.palette.textTertiary
                 }
@@ -543,17 +565,29 @@ Item {
 
         spacing: Theme.spacing.small
 
-        Rectangle {
+        Item {
             anchors.verticalCenter: parent.verticalCenter
             width: 8
             height: 8
-            radius: 4
-            color: legend.current ? Theme.palette.primary
-                 : legend.mark === 1 ? Theme.palette.success
-                 : legend.mark === 0 ? Theme.palette.borderSecondary
-                 : "transparent"
-            border.width: !legend.current && legend.mark === -1 ? 1 : 0
-            border.color: Theme.palette.borderSecondary
+
+            Rectangle {
+                anchors.fill: parent
+                visible: legend.current || legend.mark !== -2
+                radius: 4
+                color: legend.current ? Theme.palette.primary
+                     : legend.mark === 1 ? Theme.palette.success
+                     : legend.mark === 0 ? Theme.palette.borderSecondary
+                     : "transparent"
+                border.width: !legend.current && legend.mark === -1 ? 1 : 0
+                border.color: Theme.palette.borderSecondary
+            }
+            Rectangle {
+                anchors.centerIn: parent
+                visible: !legend.current && legend.mark === -2
+                width: 6
+                height: 1
+                color: Theme.palette.borderSecondary
+            }
         }
         LogosText {
             text: legend.text

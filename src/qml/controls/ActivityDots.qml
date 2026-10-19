@@ -3,7 +3,7 @@ import QtQuick
 import Logos.Theme
 
 // The last published epochs as dots, oldest first, then the epoch in progress.
-// marks: 1 active, 0 not active, -1 unknown (not recorded).
+// marks: 1 active, 0 not active, -1 unknown (not recorded), -2 before the node joined (a dash).
 Row {
     id: root
 
@@ -15,17 +15,31 @@ Row {
     Repeater {
         model: root.marks
 
-        Rectangle {
+        Item {
+            id: slot
+
             required property var modelData
 
             width: 8
             height: 8
-            radius: 4
-            color: modelData === 1 ? Theme.palette.success
-                 : modelData === 0 ? Theme.palette.borderSecondary
-                 : "transparent"
-            border.width: modelData === -1 ? 1 : 0
-            border.color: Theme.palette.borderSecondary
+
+            Rectangle {
+                anchors.fill: parent
+                visible: slot.modelData !== -2
+                radius: 4
+                color: slot.modelData === 1 ? Theme.palette.success
+                     : slot.modelData === 0 ? Theme.palette.borderSecondary
+                     : "transparent"
+                border.width: slot.modelData === -1 ? 1 : 0
+                border.color: Theme.palette.borderSecondary
+            }
+            Rectangle {
+                anchors.centerIn: parent
+                visible: slot.modelData === -2
+                width: 6
+                height: 1
+                color: Theme.palette.borderSecondary
+            }
         }
     }
 
