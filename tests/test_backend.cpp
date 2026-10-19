@@ -308,6 +308,28 @@ LOGOS_TEST(backend_shows_activity_from_the_module) {
         LOGOS_ASSERT_EQ(r.toMap().value("activity").toList().size(), 2);
 }
 
+LOGOS_TEST(backend_shows_when_each_referral_joined) {
+    Harness h;
+    h.lez->advanceEpoch();
+    h.lez->advanceEpoch();   // epochs 2 and 3 published before joining
+    LOGOS_ASSERT_TRUE(h.enrol());   // the referrals the mock seeds join in epoch 3
+    h.lez->advanceEpoch();
+    h.lez->advanceEpoch();
+    h.backend->refresh();
+    LOGOS_ASSERT_GT(h.backend->referrals().size(), 0);
+    for (const QVariant& r : h.backend->referrals()) {
+        const QVariantMap referral = r.toMap();
+        LOGOS_ASSERT_EQ(referral.value("joinedEpoch").toInt(), 3);
+        LOGOS_ASSERT_EQ(referral.value("joinedAgo").toInt(), 2);
+        const QVariantList activity = referral.value("activity").toList();   // epochs 2..5
+        LOGOS_ASSERT_EQ(activity.size(), 4);
+        LOGOS_ASSERT_EQ(activity.first().toInt(), -2);   // before it joined
+        LOGOS_ASSERT_NE(activity.at(1).toInt(), -2);
+    }
+    // Your own node isn't a referral: no epoch of it is "before joining".
+    LOGOS_ASSERT_FALSE(h.backend->myActivity().contains(-2));
+}
+
 // ---- Auto-claim ---------------------------------------------------------------------------
 
 LOGOS_TEST(backend_claims_automatically_by_default) {
