@@ -54,6 +54,7 @@ src/interfaces/             interfaces
 src/lez/                    ReferralService over uplink_module and lez_core
   ReferralJson.h              uplink_module's replies, read (tested without the SDK)
 src/blockchain/             NodeService over blockchain_module
+src/devnet/                 NodeService over an uplink devnet node's HTTP API (testing)
 src/mock/                   in-memory implementations of both
 src/qml/Main.qml            placeholder view
 tests/                      unit, backend and UI tests (see Build and test)
@@ -68,7 +69,7 @@ Both sides are real by default. Set at launch, read once:
 |---|---|---|
 | `UPLINK_BACKEND` | `mock`, `real` | Both sides. When set, the two below are ignored. |
 | `UPLINK_LEZ` | `mock`, `mock:no_wallet`, `mock:no_program`, `real` | Referral side. `real` uses uplink_module for the programme and lez_core for the wallet. The deployment comes from `metadata.json` (below). `mock:no_wallet` makes the mock report that no wallet is open; `mock:no_program` that no deployment is selected. |
-| `UPLINK_NODE` | `mock`, `mock:<issue>`, `real` | Node side. `real` uses blockchain_module: status works today (`get_cryptarchia_info`, `get_chain_id`, `blend_info`); the node's `provider_id` waits on logos-blockchain-module#108. `mock:<issue>` makes the mock node report `module`, `not_running`, `bootstrapping`, `not_core` or `no_peers`. |
+| `UPLINK_NODE` | `mock`, `mock:<issue>`, `devnet:<url>`, `real` | Node side. `real` uses blockchain_module: status works today (`get_cryptarchia_info`, `get_chain_id`, `blend_info`); the node's `provider_id` waits on logos-blockchain-module#108. `mock:<issue>` makes the mock node report `module`, `not_running`, `bootstrapping`, `not_core` or `no_peers`. `devnet:<url>` reads an uplink devnet node's HTTP API instead; `UPLINK_NODE_ID` gives its provider ID. |
 
 ### Which deployment
 
