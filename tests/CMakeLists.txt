@@ -15,6 +15,7 @@ logos_test(
     TEST_SOURCES
         main.cpp
         test_mock_referral.cpp
+        test_referral_json.cpp
         test_backend.cpp
     EXTRA_INCLUDES
         ${CMAKE_CURRENT_SOURCE_DIR}/../src

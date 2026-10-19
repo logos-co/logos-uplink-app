@@ -25,9 +25,16 @@ ColumnLayout {
     property string referrerNode: ""
     property string accountLabel: ""
     property string accountAddress: ""
+    property var termsSections: []
+    property bool termsAccepted: false
+    property bool autoClaim: true
+    property int programIssue: UplinkUi.ProgramUnknown
+    property string programDetail: ""
 
     signal exitRequested()
-    signal joinRequested(string invitation)   // "" = as a root
+    signal acceptTermsRequested()
+    signal autoClaimToggled(bool on)
+    signal joinRequested(string invitation)   // "" = as a root; Main.qml asks for the Blend key first
     signal invitationEdited(string text)
     signal openBlockchainAppRequested()
     signal openLezWalletRequested()
@@ -35,8 +42,19 @@ ColumnLayout {
 
     function begin() {
         termsStep.reset()
+        d.awaitingTerms = false
         d.stepIndex = 0
     }
+
+    // Accepting is recorded by uplink_module; the step moves on once it has.
+    onTermsAcceptedChanged: {
+        if (root.termsAccepted && d.awaitingTerms && d.step === "terms") {
+            d.awaitingTerms = false
+            d.stepIndex += 1
+        }
+    }
+
+    onErrorChanged: if (root.error !== "") d.awaitingTerms = false
 
     onEnrolStateChanged: {
         if (root.enrolState === UplinkUi.Enrolled && d.step === "join")
@@ -49,13 +67,13 @@ ColumnLayout {
         id: d
 
         property int stepIndex: 0
+        property bool awaitingTerms: false
         readonly property var steps: ["terms", "ready", "join", "done"]
         readonly property string step: steps[stepIndex]
         readonly property var stepNames: [qsTr("Terms"), qsTr("Ready"), qsTr("Join"), qsTr("Done")]
 
         readonly property bool busy: root.creatingAccount
                                      || root.enrolState === UplinkUi.Invited
-                                     || root.enrolState === UplinkUi.AwaitingSignature
                                      || root.enrolState === UplinkUi.Enrolling
 
         readonly property string phase: {
@@ -63,7 +81,6 @@ ColumnLayout {
                 return qsTr("Creating account…")
             switch (root.enrolState) {
             case UplinkUi.Invited: return qsTr("Importing invitation…")
-            case UplinkUi.AwaitingSignature: return qsTr("Waiting for signature…")
             case UplinkUi.Enrolling: return qsTr("Joining…")
             }
             return ""
@@ -72,7 +89,7 @@ ColumnLayout {
         readonly property string subtitle: {
             switch (step) {
             case "terms": return qsTr("Read and accept the program terms.")
-            case "ready": return qsTr("Your node signs your join, and your LEZ wallet keeps your points.")
+            case "ready": return qsTr("Your node needs to be running, and your LEZ wallet open to keep your points.")
             case "join":  return qsTr("Join under the person who invited you, or start your own tree.")
             case "done":  return qsTr("You’re in.")
             }
@@ -83,7 +100,7 @@ ColumnLayout {
 
         readonly property bool canAdvance: {
             switch (step) {
-            case "terms": return termsStep.accepted
+            case "terms": return termsStep.accepted && !d.awaitingTerms
             case "ready": return readyStep.ready
             case "join":  return !busy && readyStep.ready
                                  && (joinStep.mode === "root"
@@ -98,7 +115,7 @@ ColumnLayout {
                 return phase
             switch (step) {
             case "join":  return joinStep.mode === "root" ? qsTr("Join as root")
-                                                          : qsTr("Import invitation & sign")
+                                                          : qsTr("Import invitation & join")
             case "done":  return qsTr("Finish")
             }
             return qsTr("Continue")
@@ -109,7 +126,7 @@ ColumnLayout {
                 return ""
             switch (step) {
             case "terms": return termsStep.accepted ? "" : qsTr("Read to the end and tick the box to continue.")
-            case "ready": return readyStep.ready ? "" : qsTr("Your node and LEZ wallet need to be ready.")
+            case "ready": return readyStep.ready ? "" : qsTr("Your node and your LEZ wallet need to be ready.")
             case "join":  return readyStep.ready ? "" : qsTr("Your node or wallet stopped. Go back to check.")
             }
             return ""
@@ -124,6 +141,13 @@ ColumnLayout {
 
         function advance() {
             switch (step) {
+            case "terms":
+                if (!root.termsAccepted) {
+                    d.awaitingTerms = true
+                    root.acceptTermsRequested()
+                    return
+                }
+                break
             case "join":
                 root.joinRequested(joinStep.mode === "root" ? "" : joinStep.invitationText)
                 return
@@ -211,6 +235,9 @@ ColumnLayout {
 
         TermsStep {
             id: termsStep
+
+            sections: root.termsSections
+            error: d.step === "terms" ? root.error : ""
         }
 
         ReadyStep {
@@ -222,6 +249,8 @@ ColumnLayout {
             walletDetail: root.walletDetail
             syncedBlock: root.syncedBlock
             chainHeight: root.chainHeight
+            programIssue: root.programIssue
+            programDetail: root.programDetail
             onOpenBlockchainAppRequested: root.openBlockchainAppRequested()
             onOpenLezWalletRequested: root.openLezWalletRequested()
         }
@@ -239,6 +268,8 @@ ColumnLayout {
             referrerNode: root.referrerNode
             accountLabel: root.accountLabel
             accountAddress: root.accountAddress
+            autoClaim: root.autoClaim
+            onAutoClaimToggled: function (on) { root.autoClaimToggled(on) }
         }
     }
 

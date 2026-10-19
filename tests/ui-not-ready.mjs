@@ -86,7 +86,7 @@ test("not ready: both problems are named, with a way to fix each", async (app) =
 test("not ready: the user can't continue, and is told why", async (app) => {
   await waitProp(app, "uplink.ReadyStep", "ready", is(false));
   await waitProp(app, "uplink.onboardingAdvanceButton", "enabled", is(false));
-  await waitProp(app, "uplink.onboardingAdvanceHint", "text", is("Your node and LEZ wallet need to be ready."));
+  await waitProp(app, "uplink.onboardingAdvanceHint", "text", is("Your node and your LEZ wallet need to be ready."));
 });
 
 test("not ready: Back returns to the terms, still accepted", async (app) => {

@@ -6,8 +6,6 @@
 #include <QTemporaryDir>
 #include <memory>
 
-#include "InvitationCode.h"
-#include "PayoutCode.h"
 #include "UplinkBackend.h"
 #include "mock/MockNodeService.h"
 #include "mock/MockReferralService.h"
@@ -22,24 +20,31 @@ namespace {
 class SharedReferral : public ReferralService {
 public:
     explicit SharedReferral(std::shared_ptr<MockReferralService> m) : m(std::move(m)) {}
-    Result<QString> createParticipant() override { return m->createParticipant(); }
+    Result<QString> programAccount() override { return m->programAccount(); }
+    Result<bool> configure(const QString& p) override { return m->configure(p); }
+    Result<ProgramCheck> checkProgram() override { return m->checkProgram(); }
+    Result<QString> createParticipant(const QString& l) override { return m->createParticipant(l); }
     Result<Participant> participant(const QString& p) override { return m->participant(p); }
     Result<QString> invitation(const QString& p, const QString& n) override { return m->invitation(p, n); }
+    Result<InvitationCheck> checkInvitation(const QString& b) override { return m->checkInvitation(b); }
     Result<QString> importInvitation(const QString& p, const QString& b) override { return m->importInvitation(p, b); }
-    Result<QString> prepareRegistration(const QString& p, const QString& n, const QString& r) override { return m->prepareRegistration(p, n, r); }
-    Result<bool> attachNodeSignature(const QString& p, const QByteArray& s) override { return m->attachNodeSignature(p, s); }
     Result<Registry> registry() override { return m->registry(); }
+    Result<Activity> activity(const QStringList& n, int c) override { return m->activity(n, c); }
     Result<QList<Note>> notes(const QString& p) override { return m->notes(p); }
     Result<QString> claimable(const QString& p) override { return m->claimable(p); }
-    Result<QList<Receipt>> receipts(const QString& p) override { return m->receipts(p); }
-    Result<Opening> opening(const QString& p, quint64 i) override { return m->opening(p, i); }
-    Result<Status> submitRegister(const QString& r, const QString& p) override { return m->submitRegister(r, p); }
-    Result<Status> submitClaim(const QString& r, const QString& p, const QStringList& n) override { return m->submitClaim(r, p, n); }
-    Result<Status> cashOut(const QString& r, const QString& p) override { return m->cashOut(r, p); }
-    Result<Status> reconcile(const QString& r) override { return m->reconcile(r); }
+    Result<Terms> terms() override { return m->terms(); }
+    Result<bool> termsAccepted() override { return m->termsAccepted(); }
+    Result<bool> acceptTerms(int v, const QString& h) override { return m->acceptTerms(v, h); }
+    Result<QString> keystoreNode(const QString& k) override { return m->keystoreNode(k); }
+    Result<Status> enrol(const QString& r, const QString& p, const QString& k, const QString& n) override { return m->enrol(r, p, k, n); }
+    Result<Status> claim(const QString& r, const QString& p) override { return m->claim(r, p); }
+    Result<QString> autoClaim(const QString& p) override { return m->autoClaim(p); }
+    Result<Status> cashOut(const QString& r, const QString& p, const QString& k) override { return m->cashOut(r, p, k); }
+    Result<QList<Receipt>> receipts(const QString& p, const QString& k) override { return m->receipts(p, k); }
+    Result<QString> payoutCode(const QString& p, quint64 i, const QString& k) override { return m->payoutCode(p, i, k); }
+    Result<Status> status(const QString& r) override { return m->status(r); }
     Result<bool> walletOpen() override { return m->walletOpen(); }
     Result<QString> resolveLabel(const QString& l) override { return m->resolveLabel(l); }
-    Result<bool> addLabel(const QString& l, const QString& a) override { return m->addLabel(l, a); }
     Result<QString> accountAddress(const QString& a) override { return m->accountAddress(a); }
     Result<qint64> lastSyncedBlock() override { return m->lastSyncedBlock(); }
     Result<qint64> currentBlockHeight() override { return m->currentBlockHeight(); }
@@ -49,49 +54,30 @@ private:
     std::shared_ptr<MockReferralService> m;
 };
 
-// The mock node, plus what the node app answers for a signRequest.
-class TestNode : public node::NodeService {
-public:
-    explicit TestNode(node::Issue issue = node::Issue::None) : m_mock(issue) {}
-    node::Status status() override { return m_mock.status(); }
-    QVariantMap answer(const QVariantMap& request) const { return m_mock.answerSignRequest(request); }
-    QString signHex(const QVariantMap& request) const { return answer(request).value("signature").toString(); }
-
-private:
-    MockNodeService m_mock;
-};
-
 struct Harness {
-    explicit Harness(bool nodePrompts = false, node::Issue issue = node::Issue::None)
+    explicit Harness(node::Issue issue = node::Issue::None)
         : lez(std::make_shared<MockReferralService>())
     {
-        start(nodePrompts, issue);
+        start(issue);
     }
 
     // A new backend over the same chain and wallet: Uplink closed and opened again.
-    void start(bool nodePrompts = false, node::Issue issue = node::Issue::None)
+    // Uplink's own file (labels, settings) goes to a fresh place per test.
+    void start(node::Issue issue = node::Issue::None)
     {
         backend.reset();
-        auto n = std::make_unique<TestNode>(issue);
-        node = n.get();
-        // As in mock mode, the mock node app answers at once; `nodePrompts` leaves the
-        // signRequest for the test to answer, as the real node app does.
-        UplinkBackend::MockNodeApp app;
-        if (!nodePrompts)
-            app = [n = node](const QVariantMap& request) { return n->answer(request); };
-        // Uplink's own file (labels, activity) goes to a fresh place per test.
-        backend = std::make_unique<UplinkBackend>(std::make_unique<SharedReferral>(lez), std::move(n), data.path(),
-                                                  std::move(app));
+        backend = std::make_unique<UplinkBackend>(std::make_unique<SharedReferral>(lez),
+                                                  std::make_unique<MockNodeService>(issue), data.path());
         backend->refresh();
     }
 
-    // Joins as the root of a new tree; true once Enrolled.
+    // Terms, keystore, account, join as the root of a new tree; true once Enrolled.
     bool enrol()
     {
+        backend->acceptTerms();
+        backend->chooseKeystore(MockReferralService::keystorePath());
         backend->createIdentity();
-        backend->prepareEnroll();
-        if (backend->enrolState() == B::AwaitingSignature)
-            backend->completeEnroll(ref(), node->signHex(backend->signRequest()), backend->nodeId());
+        backend->enrol();
         backend->refresh();   // the registration settles
         return backend->enrolState() == B::Enrolled;
     }
@@ -100,21 +86,69 @@ struct Harness {
     void cashOut()
     {
         backend->cashOutAll();
-        backend->refresh();   // Collect settles, CashOut is submitted
-        backend->refresh();   // CashOut settles, the code is prepared
+        backend->refresh();   // the claim settles, CashOut is submitted
+        backend->refresh();   // CashOut settles, the code is made
     }
-
-    QString ref() const { return backend->signRequest().value("ref").toString(); }
 
     QTemporaryDir data;
     std::shared_ptr<MockReferralService> lez;
-    TestNode* node = nullptr;
     std::unique_ptr<UplinkBackend> backend;
 };
 
-QString strangerNode() { return QString(64, QLatin1Char('e')); }
-
 } // namespace
+
+// ---- Deployment -------------------------------------------------------------------
+
+LOGOS_TEST(backend_selects_the_releases_deployment) {
+    Harness h;
+    h.lez->configure({});
+    h.backend->setReleaseDeployment(QStringLiteral("mock-testnet"), MockReferralService::deployedProgram());
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.lez->programAccount().value, MockReferralService::deployedProgram());
+    LOGOS_ASSERT_EQ(h.backend->programIssue(), int(B::ProgramReady));
+    LOGOS_ASSERT_TRUE(h.enrol());
+}
+
+LOGOS_TEST(backend_leaves_the_modules_choice_when_the_release_names_none) {
+    Harness h;   // the mock has its program selected, like REFERRAL_PROGRAM_ACCOUNT
+    LOGOS_ASSERT_EQ(h.backend->programIssue(), int(B::ProgramReady));
+    h.lez->configure({});
+    h.backend->setReleaseDeployment({}, {});
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->programIssue(), int(B::ProgramNotConfigured));
+}
+
+LOGOS_TEST(backend_refuses_a_release_for_another_network) {
+    Harness h;
+    h.lez->configure({});
+    h.backend->setReleaseDeployment(QStringLiteral("logos-devnet"), MockReferralService::deployedProgram());
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->programIssue(), int(B::ProgramOtherNetwork));
+    LOGOS_ASSERT_TRUE(h.backend->programIssueDetail().contains("logos-devnet"));
+    LOGOS_ASSERT_EQ(h.lez->programAccount().value, QString());   // not selected on the wrong chain
+}
+
+LOGOS_TEST(backend_reports_a_missing_or_outdated_program) {
+    Harness h;
+    h.backend->setReleaseDeployment({}, QString(64, QLatin1Char('e')));
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->programIssue(), int(B::ProgramNotDeployed));
+
+    h.backend->setReleaseDeployment({}, MockReferralService::outdatedProgram());
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->programIssue(), int(B::ProgramMismatch));
+}
+
+LOGOS_TEST(backend_checks_the_program_once_the_wallet_is_open) {
+    Harness h;
+    h.lez->setWalletOpen(false);
+    h.backend->setReleaseDeployment({}, MockReferralService::deployedProgram());
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->programIssue(), int(B::ProgramUnknown));
+    h.lez->setWalletOpen(true);
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->programIssue(), int(B::ProgramReady));
+}
 
 // ---- Joining ----------------------------------------------------------------------
 
@@ -123,7 +157,7 @@ LOGOS_TEST(backend_joins_as_root_and_shows_its_referrals) {
     LOGOS_ASSERT_EQ(h.backend->walletIssue(), int(B::WalletReady));
     LOGOS_ASSERT_EQ(h.backend->nodeIssue(), int(B::NoIssue));
     LOGOS_ASSERT_TRUE(h.enrol());
-    LOGOS_ASSERT_TRUE(h.backend->invitation().startsWith("uplink-invite:"));
+    LOGOS_ASSERT_TRUE(h.backend->invitation().startsWith("uplink-invite-v1:"));
     LOGOS_ASSERT_EQ(h.backend->referrals().size(), 3);   // the mock seeds three
     LOGOS_ASSERT_EQ(h.backend->referrerNode(), QString());
     LOGOS_ASSERT_EQ(h.backend->lastError(), QString());
@@ -131,13 +165,17 @@ LOGOS_TEST(backend_joins_as_root_and_shows_its_referrals) {
 
 LOGOS_TEST(backend_joins_under_an_invitation) {
     Harness h;
-    const QString code = invitation_code::encode(MockReferralService::invitationFor(MockReferralService::inviterNode()));
+    const QString code = MockReferralService::invitationFor(MockReferralService::inviterNode());
     h.backend->checkInvitation(code);
     LOGOS_ASSERT_EQ(h.backend->invitationCheck(), int(B::InvitationOk));
+    LOGOS_ASSERT_EQ(h.backend->invitationInviter(), MockReferralService::inviterNode());
+    h.backend->acceptTerms();
+    h.backend->chooseKeystore(MockReferralService::keystorePath());
     h.backend->createIdentity();
     h.backend->joinUnder(code);
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Invited));
-    h.backend->prepareEnroll();
+    h.backend->enrol();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolling));
     h.backend->refresh();
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
     LOGOS_ASSERT_EQ(h.backend->referrerNode(), MockReferralService::inviterNode());
@@ -145,31 +183,78 @@ LOGOS_TEST(backend_joins_under_an_invitation) {
 
 LOGOS_TEST(backend_checks_an_invitation_before_joining) {
     Harness h;
-    h.backend->checkInvitation("  ");
+    h.backend->checkInvitation("");
     LOGOS_ASSERT_EQ(h.backend->invitationCheck(), int(B::InvitationEmpty));
-    h.backend->checkInvitation("hello");
+    h.backend->checkInvitation("not a code");
     LOGOS_ASSERT_EQ(h.backend->invitationCheck(), int(B::InvitationInvalid));
-    h.backend->checkInvitation(invitation_code::encode(MockReferralService::invitationFor(h.backend->nodeId())));
-    LOGOS_ASSERT_EQ(h.backend->invitationCheck(), int(B::InvitationOwn));
-    h.backend->checkInvitation(invitation_code::encode(MockReferralService::invitationFor(strangerNode())));
+    h.backend->checkInvitation(MockReferralService::invitationFor(QString(64, 'e')));
     LOGOS_ASSERT_EQ(h.backend->invitationCheck(), int(B::InviterNotJoined));
+    h.backend->checkInvitation(MockReferralService::invitationFor(h.backend->nodeId()));
+    LOGOS_ASSERT_EQ(h.backend->invitationCheck(), int(B::InvitationOwn));
 }
 
 LOGOS_TEST(backend_needs_a_running_node_to_join) {
-    Harness h(false, node::Issue::NotRunning);
-    LOGOS_ASSERT_EQ(h.backend->nodeIssue(), int(B::NodeNotRunning));
-    h.backend->createIdentity();
-    h.backend->prepareEnroll();
-    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("needs to be running"));
-    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));
+    Harness h(node::Issue::NotRunning);
+    LOGOS_ASSERT_FALSE(h.enrol());
+    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("running"));
 }
 
 LOGOS_TEST(backend_reports_a_node_that_is_not_core) {
-    Harness h(false, node::Issue::NotCore);
+    Harness h(node::Issue::NotCore);
     LOGOS_ASSERT_EQ(h.backend->nodeIssue(), int(B::NotCoreNode));
-    LOGOS_ASSERT_FALSE(h.backend->nodeCore());
-    LOGOS_ASSERT_TRUE(h.enrol());   // joining has no node prerequisite beyond signing
+    LOGOS_ASSERT_TRUE(h.enrol());   // joining has no Blend prerequisite
 }
+
+LOGOS_TEST(backend_needs_the_terms_accepted_to_join) {
+    Harness h;
+    LOGOS_ASSERT_GT(h.backend->termsSections().size(), 0);
+    LOGOS_ASSERT_EQ(h.backend->termsSha256().size(), 64);
+    LOGOS_ASSERT_FALSE(h.backend->termsAccepted());
+    h.backend->chooseKeystore(MockReferralService::keystorePath());
+    h.backend->createIdentity();
+    h.backend->enrol();
+    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("terms"));
+    h.backend->acceptTerms();
+    LOGOS_ASSERT_TRUE(h.backend->termsAccepted());
+}
+
+// ---- The keystore (Blend key) -----------------------------------------------------
+
+LOGOS_TEST(backend_needs_a_key_file_to_join) {
+    Harness h;
+    LOGOS_ASSERT_EQ(h.backend->keystoreIssue(), int(B::KeystoreNotChosen));
+    h.backend->acceptTerms();
+    h.backend->createIdentity();
+    h.backend->enrol();
+    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("keystore.yaml first"));
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));
+}
+
+LOGOS_TEST(backend_refuses_a_key_file_for_another_node) {
+    Harness h;
+    h.backend->chooseKeystore(MockReferralService::otherNodeKeystorePath());
+    LOGOS_ASSERT_EQ(h.backend->keystoreIssue(), int(B::KeystoreWrongNode));
+    LOGOS_ASSERT_NE(h.backend->keystoreNode(), h.backend->nodeId());
+    h.backend->acceptTerms();
+    h.backend->createIdentity();
+    h.backend->enrol();
+    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("different node"));
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));
+}
+
+LOGOS_TEST(backend_remembers_the_key_files_path_not_the_key) {
+    Harness h;
+    h.backend->chooseKeystore(QStringLiteral("file://") + MockReferralService::keystorePath());   // the picker's URL
+    LOGOS_ASSERT_EQ(h.backend->keystorePath(), MockReferralService::keystorePath());
+    LOGOS_ASSERT_EQ(h.backend->keystoreIssue(), int(B::KeystoreReady));
+    LOGOS_ASSERT_EQ(h.backend->keystoreNode(), h.backend->nodeId());
+    h.start();
+    LOGOS_ASSERT_EQ(h.backend->keystorePath(), MockReferralService::keystorePath());
+    LOGOS_ASSERT_EQ(h.backend->keystoreIssue(), int(B::KeystoreReady));
+    LOGOS_ASSERT_TRUE(h.backend->keystoreFolder().startsWith("file://"));
+}
+
+// ---- Identity across sessions ---------------------------------------------------------
 
 LOGOS_TEST(backend_finds_its_identity_again_after_a_restart) {
     Harness h;
@@ -178,70 +263,8 @@ LOGOS_TEST(backend_finds_its_identity_again_after_a_restart) {
     h.start();
     LOGOS_ASSERT_EQ(h.backend->participantId(), participant);
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+    LOGOS_ASSERT_FALSE(h.backend->identityAddress().isEmpty());
 }
-
-// ---- The node's signature -----------------------------------------------------------
-
-// Uplink only names the values; the node app builds the message from them and its own key.
-LOGOS_TEST(backend_asks_the_node_app_to_sign_the_enrolment) {
-    Harness h(true);
-    h.backend->createIdentity();
-    h.backend->prepareEnroll();
-    const QVariantMap request = h.backend->signRequest();
-    LOGOS_ASSERT_EQ(request.value("intent").toString(), QString("node.sign_referral_enrolment"));
-    LOGOS_ASSERT_FALSE(h.ref().isEmpty());
-    const QVariantMap params = request.value("params").toMap();
-    LOGOS_ASSERT_EQ(params.keys(), QStringList({"participant_account", "program", "referrer"}));
-    LOGOS_ASSERT_FALSE(params.value("program").toString().isEmpty());
-    LOGOS_ASSERT_EQ(params.value("participant_account").toString(), h.backend->participantId());
-    LOGOS_ASSERT_EQ(params.value("referrer").toString(), QString());
-}
-
-LOGOS_TEST(backend_ignores_a_signature_for_another_request) {
-    Harness h(true);
-    h.backend->createIdentity();
-    h.backend->prepareEnroll();
-    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));
-    const QString signature = h.node->signHex(h.backend->signRequest());
-    h.backend->completeEnroll("stale", signature, h.backend->nodeId());
-    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));
-    LOGOS_ASSERT_EQ(h.backend->lastError(), QString());
-    h.backend->completeEnroll(h.ref(), signature, h.backend->nodeId());
-    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolling));
-}
-
-LOGOS_TEST(backend_ignores_a_failure_for_another_request) {
-    Harness h(true);
-    h.backend->createIdentity();
-    h.backend->prepareEnroll();
-    h.backend->reportSignFailed("stale", "cancelled");
-    LOGOS_ASSERT_EQ(h.backend->lastError(), QString());
-    h.backend->reportSignFailed(h.ref(), "cancelled");
-    LOGOS_ASSERT_EQ(h.backend->lastError(), QString("Signing was cancelled."));
-    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));   // can sign again
-}
-
-LOGOS_TEST(backend_refuses_a_malformed_signature) {
-    Harness h(true);
-    h.backend->createIdentity();
-    h.backend->prepareEnroll();
-    for (const QString& bad : {QString("abcd"), QString(128, QLatin1Char('z')), QString(130, QLatin1Char('a'))}) {
-        h.backend->completeEnroll(h.ref(), bad, h.backend->nodeId());
-        LOGOS_ASSERT_TRUE(h.backend->lastError().contains("malformed"));
-        LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));
-    }
-}
-
-LOGOS_TEST(backend_refuses_a_signature_from_another_key) {
-    Harness h(true);
-    h.backend->createIdentity();
-    h.backend->prepareEnroll();
-    h.backend->completeEnroll(h.ref(), h.node->signHex(h.backend->signRequest()), strangerNode());
-    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("different node key"));
-    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));
-}
-
-// ---- The wallet ------------------------------------------------------------------------
 
 LOGOS_TEST(backend_forgets_the_identity_when_the_wallet_closes) {
     Harness h;
@@ -272,10 +295,53 @@ LOGOS_TEST(backend_drops_the_old_account_when_the_wallet_is_switched) {
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));   // the new one sticks
 }
 
+// ---- Activity -------------------------------------------------------------------------
+
+LOGOS_TEST(backend_shows_activity_from_the_module) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    h.lez->advanceEpoch();
+    h.lez->advanceEpoch();
+    h.backend->refresh();
+    LOGOS_ASSERT_TRUE(h.backend->myActivity() == QVariantList({1, 1}));
+    for (const QVariant& r : h.backend->referrals())
+        LOGOS_ASSERT_EQ(r.toMap().value("activity").toList().size(), 2);
+}
+
+// ---- Auto-claim ---------------------------------------------------------------------------
+
+LOGOS_TEST(backend_claims_automatically_by_default) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.backend->autoClaim());
+    LOGOS_ASSERT_TRUE(h.enrol());
+    h.lez->advanceEpoch();
+    h.backend->refresh();   // claimable 3: the claim is submitted
+    LOGOS_ASSERT_EQ(h.backend->operations().size(), 2);   // register + claim
+    h.backend->refresh();   // it settles
+    LOGOS_ASSERT_EQ(h.backend->rewardBalance(), QString("3"));
+    LOGOS_ASSERT_EQ(h.backend->claimablePoints(), QString("0"));
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->operations().size(), 2);   // nothing more to claim
+}
+
+LOGOS_TEST(backend_leaves_points_unclaimed_when_auto_claim_is_off) {
+    Harness h;
+    h.backend->changeAutoClaim(false);
+    LOGOS_ASSERT_TRUE(h.enrol());
+    h.lez->advanceEpoch();
+    h.backend->refresh();
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->claimablePoints(), QString("3"));
+    LOGOS_ASSERT_EQ(h.backend->rewardBalance(), QString("0"));
+    h.start();
+    LOGOS_ASSERT_FALSE(h.backend->autoClaim());   // remembered
+}
+
 // ---- Cashing out ---------------------------------------------------------------------------
 
 LOGOS_TEST(backend_cashes_out_into_a_payout_code) {
     Harness h;
+    h.backend->changeAutoClaim(false);
     LOGOS_ASSERT_TRUE(h.enrol());
     h.lez->advanceEpoch();   // epoch 2: own node and two children active, plus a credit
     h.backend->refresh();
@@ -290,10 +356,7 @@ LOGOS_TEST(backend_cashes_out_into_a_payout_code) {
     h.backend->refresh();
     LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashOutDone));
     LOGOS_ASSERT_EQ(h.backend->payoutPoints(), QString("3"));
-    const QString code = h.backend->payoutCode();
-    LOGOS_ASSERT_TRUE(code.startsWith(payout_code::kPrefix));
-    LOGOS_ASSERT_EQ(payout_code::decode(code).node, h.backend->nodeId());
-    LOGOS_ASSERT_EQ(payout_code::signature(code).size(), 128);
+    LOGOS_ASSERT_TRUE(h.backend->payoutCode().startsWith("uplink-payout-v2:"));
 
     h.backend->finishCashOut();
     h.backend->refresh();
@@ -306,37 +369,45 @@ LOGOS_TEST(backend_cashes_out_into_a_payout_code) {
     LOGOS_ASSERT_EQ(h.backend->lastError(), QString("No points to cash out yet."));
 }
 
-LOGOS_TEST(backend_wont_collect_while_its_node_is_inactive) {
-    Harness h;
-    LOGOS_ASSERT_TRUE(h.enrol());
-    for (int i = 0; i < 3; ++i)
-        h.lez->advanceEpoch();   // epoch 4: the mock's own node is off
-    h.backend->refresh();
-    LOGOS_ASSERT_FALSE(h.backend->nodeActive());
-    LOGOS_ASSERT_NE(h.backend->totalPoints(), QString("0"));
-    h.backend->cashOutAll();
-    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("isn't an active"));
-    LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashOutIdle));
-}
-
-// Another cash-out for the same account lands while ours is pending, so two receipts are new:
-// the backend must not guess which is ours.
-LOGOS_TEST(backend_does_not_guess_between_new_receipts) {
+LOGOS_TEST(backend_cashes_out_what_auto_claim_already_collected) {
     Harness h;
     LOGOS_ASSERT_TRUE(h.enrol());
     h.lez->advanceEpoch();
     h.backend->refresh();
+    h.backend->refresh();   // auto-claim settled: balance 3, nothing claimable
     h.backend->cashOutAll();
-    h.backend->refresh();
     LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashingOut));
-    const QString participant = h.backend->participantId();
-    h.lez->cashOut("elsewhere", participant);
-    h.lez->reconcile("elsewhere");
     h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashOutDone));
+    LOGOS_ASSERT_EQ(h.backend->payoutPoints(), QString("3"));
+}
+
+// Cash out pressed while an auto-claim is still settling: it waits for that claim, then cashes out.
+LOGOS_TEST(backend_cash_out_waits_for_a_settling_auto_claim) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    h.lez->advanceEpoch();
+    h.backend->refresh();   // the auto-claim is submitted, still pending
+    h.backend->cashOutAll();
+    LOGOS_ASSERT_EQ(h.backend->lastError(), QString());
+    LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::Collecting));
+    h.backend->refresh();   // the claim settles, CashOut is submitted
+    LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashingOut));
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashOutDone));
+    LOGOS_ASSERT_EQ(h.backend->payoutPoints(), QString("3"));
+}
+
+LOGOS_TEST(backend_needs_the_key_file_to_cash_out) {
+    Harness h;
+    h.backend->changeAutoClaim(false);
+    LOGOS_ASSERT_TRUE(h.enrol());
+    h.backend->chooseKeystore(MockReferralService::otherNodeKeystorePath());
+    h.lez->advanceEpoch();
+    h.backend->refresh();
+    h.backend->cashOutAll();
+    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("keystore.yaml first"));
     LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashOutIdle));
-    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("couldn't tell which receipt"));
-    LOGOS_ASSERT_EQ(h.backend->payoutCode(), QString());
-    LOGOS_ASSERT_EQ(h.backend->receipts().size(), 2);
 }
 
 LOGOS_TEST(backend_codes_the_receipt_its_cash_out_made) {
@@ -344,23 +415,24 @@ LOGOS_TEST(backend_codes_the_receipt_its_cash_out_made) {
     LOGOS_ASSERT_TRUE(h.enrol());
     h.lez->advanceEpoch();
     h.backend->refresh();
+    h.backend->refresh();
     h.cashOut();
     h.backend->finishCashOut();
     h.lez->advanceEpoch();
-    h.lez->advanceEpoch();   // epoch 4: own node off; 5: on again
     h.lez->advanceEpoch();
+    h.backend->refresh();
     h.backend->refresh();
     h.cashOut();
     LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashOutDone));
-    const auto opening = h.lez->opening(h.backend->participantId(), 1);
-    LOGOS_ASSERT_EQ(payout_code::decode(h.backend->payoutCode()).blindingFactor, opening.value.blindingFactor);
+    LOGOS_ASSERT_EQ(h.backend->payoutCode(), h.lez->payoutCode(h.backend->participantId(), 1, MockReferralService::keystorePath()).value);
 }
 
-// A restart (or a cancelled signature) between cashing out and copying the code.
+// A restart between cashing out and copying the code.
 LOGOS_TEST(backend_gets_a_past_receipts_code_again_after_a_restart) {
     Harness h;
     LOGOS_ASSERT_TRUE(h.enrol());
     h.lez->advanceEpoch();
+    h.backend->refresh();
     h.backend->refresh();
     h.cashOut();
     const QString code = h.backend->payoutCode();
@@ -379,37 +451,6 @@ LOGOS_TEST(backend_reports_a_receipt_that_does_not_exist) {
     h.backend->payoutCodeFor(4);
     LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashOutIdle));
     LOGOS_ASSERT_TRUE(h.backend->lastError().contains("wasn't found"));
-}
-
-LOGOS_TEST(backend_asks_the_node_app_to_sign_the_payout_code) {
-    Harness h(true);
-    LOGOS_ASSERT_TRUE(h.enrol());
-    h.lez->advanceEpoch();
-    h.backend->refresh();
-    h.cashOut();
-    const QVariantMap request = h.backend->signRequest();
-    LOGOS_ASSERT_EQ(request.value("intent").toString(), QString("node.sign_referral_payout"));
-    const QVariantMap params = request.value("params").toMap();
-    LOGOS_ASSERT_EQ(params.keys(), QStringList({"blinding_factor", "program_account"}));
-    LOGOS_ASSERT_FALSE(params.value("program_account").toString().isEmpty());
-    LOGOS_ASSERT_FALSE(params.value("blinding_factor").toString().isEmpty());
-}
-
-LOGOS_TEST(backend_payout_signing_waits_for_the_current_request) {
-    Harness h(true);
-    LOGOS_ASSERT_TRUE(h.enrol());
-    h.lez->advanceEpoch();
-    h.backend->refresh();
-    h.cashOut();
-    LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::SigningCode));
-    const QString signature = h.node->signHex(h.backend->signRequest());
-    h.backend->reportPayoutSignFailed(h.ref(), "cancelled");
-    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("sign again"));
-    h.backend->completePayoutSignature("stale", signature, h.backend->nodeId());
-    LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::SigningCode));
-    h.backend->completePayoutSignature(h.ref(), signature, h.backend->nodeId());
-    LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashOutDone));
-    LOGOS_ASSERT_EQ(payout_code::signature(h.backend->payoutCode()), signature);
 }
 
 // ---- Local labels ----------------------------------------------------------------------

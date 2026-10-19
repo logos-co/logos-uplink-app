@@ -73,11 +73,14 @@ async function waitProp(app, name, property, check, { timeout = 10000, descripti
 
 const is = (expected) => (v) => v === expected;
 
-// What a mock inviter hands out (MockReferralService::invitationFor), as a shareable code.
+// What a mock inviter hands out (MockReferralService::invitationFor), in uplink_module's
+// format: "uplink-invite-v1:" + base64url(node ‖ npk ‖ vpk), vpk being 1184 bytes.
 function invitationCode(node) {
-  const hex = (s) => createHash("sha256").update(s).digest("hex");
-  const blob = JSON.stringify({ npk: hex(`npk:${node}`), parent_node: node, vpk: hex(`vpk:${node}`) });
-  return "uplink-invite:" + Buffer.from(blob).toString("base64url");
+  const sha = (s) => createHash("sha256").update(s).digest();
+  let vpk = Buffer.alloc(0);
+  while (vpk.length < 1184) vpk = Buffer.concat([vpk, sha(`vpk:${node}${vpk.length}`)]);
+  const raw = Buffer.concat([Buffer.from(node, "hex"), sha(`npk:${node}`), vpk.subarray(0, 1184)]);
+  return "uplink-invite-v1:" + raw.toString("base64url");
 }
 const mockInviter = createHash("sha256").update("mock-inviter").digest("hex");
 
@@ -113,7 +116,7 @@ test("terms: reading to the end and ticking the box allows continuing", async (a
 
 // ---- Ready and join --------------------------------------------------------------------
 
-test("ready: the mock node and wallet are detected", async (app) => {
+test("ready: the mock node and the wallet are detected", async (app) => {
   await waitProp(app, "uplink.ReadyStep", "visible", is(true));
   await waitProp(app, "uplink.ReadyStep", "ready", is(true), { timeout: 15000 });
   await app.expectTexts(["YOUR NODE (DETECTED)", "YOUR LEZ WALLET (OPEN)"]);
@@ -137,22 +140,41 @@ test("join: a good invitation enables joining under it", async (app) => {
   await set(app, "uplink.invitationInput", "text", invitationCode(mockInviter));
   await waitProp(app, "uplink.invitationNote", "text", is(""));
   await waitProp(app, "uplink.onboardingAdvanceButton", "enabled", is(true));
-  await waitProp(app, "uplink.onboardingAdvanceButton", "text", is("Import invitation & sign"));
+  await waitProp(app, "uplink.onboardingAdvanceButton", "text", is("Import invitation & join"));
 });
 
 test("join: choosing my own tree changes the action", async (app) => {
   await click(app, "uplink.rootChoice");
   await waitProp(app, "uplink.onboardingAdvanceButton", "text", is("Join as root"));
   await click(app, "uplink.inviteChoice");
-  await waitProp(app, "uplink.onboardingAdvanceButton", "text", is("Import invitation & sign"));
+  await waitProp(app, "uplink.onboardingAdvanceButton", "text", is("Import invitation & join"));
 });
 
-test("join: the node signs, the join lands, and Done shows the points account", async (app) => {
+test("join: joining asks to sign with the Blend key from the keystore, and Cancel joins nothing", async (app) => {
   await click(app, "uplink.onboardingAdvanceButton");
+  await waitProp(app, "uplink.BlendKeyDialog", "opened", is(true));
+  await waitProp(app, "uplink.blendKeyConfirmButton", "text", is("Sign and join"));
+  await waitProp(app, "uplink.BlendKeyDialog", "title", is("Sign with your Blend key"));
+  // The mock's keystore is already chosen, so the main button signs and Change… sits beside it.
+  await waitProp(app, "uplink.blendKeyChooseButton", "visible", is(true));
+  await waitProp(app, "uplink.blendKeyChooseButton", "text", is("Change…"));
+  await click(app, "uplink.blendKeyCancelButton");
+  await waitProp(app, "uplink.BlendKeyDialog", "visible", is(false));
+  await waitProp(app, "uplink.JoinStep", "visible", is(true));
+});
+
+test("join: the Blend key signs, the join lands, and Done shows the points account", async (app) => {
+  await click(app, "uplink.onboardingAdvanceButton");
+  await waitProp(app, "uplink.BlendKeyDialog", "opened", is(true));
+  await click(app, "uplink.blendKeyConfirmButton");
   // The registration settles on the backend's next poll (every 5 s).
   await waitProp(app, "uplink.DoneStep", "visible", is(true), { timeout: 20000 });
   await app.expectTexts(["UPLINK POINTS ACCOUNT"]);
   await waitProp(app, "uplink.pointsAccount", "visible", is(true));
+});
+
+test("done: collecting automatically is offered, and on by default", async (app) => {
+  await waitProp(app, "uplink.autoClaimSwitch", "checked", is(true));
 });
 
 // ---- Overview ------------------------------------------------------------------------------
@@ -172,7 +194,7 @@ test("overview: the referrals the mock seeds are listed", async (app) => {
 test("invite: the dialog shows this node's invitation code", async (app) => {
   await click(app, "uplink.invitePeerButton");
   await waitProp(app, "uplink.InviteDialog", "opened", is(true));
-  await waitProp(app, "uplink.invitationCode", "text", (t) => t.startsWith("uplink-invite:"));
+  await waitProp(app, "uplink.invitationCode", "text", (t) => t.startsWith("uplink-invite-v1:"));
   await click(app, "uplink.inviteCloseButton");
   await waitProp(app, "uplink.InviteDialog", "visible", is(false));
 });
@@ -188,6 +210,9 @@ test("claim: cashing out collects, cashes out and shows a signed payout code", a
   await waitProp(app, "uplink.ClaimDialog", "opened", is(true));
   await waitProp(app, "uplink.cashOutButton", "enabled", is(true));
   await click(app, "uplink.cashOutButton");
+  await waitProp(app, "uplink.BlendKeyDialog", "opened", is(true));
+  await waitProp(app, "uplink.blendKeyConfirmButton", "text", is("Sign and cash out"));
+  await click(app, "uplink.blendKeyConfirmButton");
   // Collect, then cash out: each settles on a poll.
   payoutCode = await waitProp(app, "uplink.payoutCode", "text", (t) => t.startsWith("uplink-payout-v2:"), { timeout: 30000 });
   await click(app, "uplink.claimDoneButton");
@@ -205,6 +230,8 @@ test("cash-outs: a past cash-out's code can be got again, and it's the same code
   await app.expectTexts(["Cash-out 1"]);
   await click(app, "uplink.cashOutCodeButton");
   await waitProp(app, "uplink.CashOutsDialog", "visible", is(false));
+  await waitProp(app, "uplink.BlendKeyDialog", "opened", is(true));
+  await click(app, "uplink.blendKeyConfirmButton");
   await waitProp(app, "uplink.ClaimDialog", "opened", is(true));
   await waitProp(app, "uplink.payoutCode", "text", is(payoutCode), { timeout: 10000 });
   await click(app, "uplink.claimDoneButton");

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <QVariantMap>
+#include <QString>
 
 #include "interfaces/NodeService.h"
 
@@ -13,9 +13,8 @@ public:
     static node::Issue issueFromName(const QString& name);
 
     node::Status status() override;
-    // Stands in for the node app, which nothing answers for in mock mode: what it would
-    // answer a signRequest ({ref, intent, params}) with, { signature, public_key }.
-    QVariantMap answerSignRequest(const QVariantMap& request) const;
+    // The node's id (its BlendSigning public key); the mock keystore holds its key.
+    static QString nodeId();
 
     void setIssue(node::Issue issue) { m_issue = issue; }
 

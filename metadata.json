@@ -11,9 +11,14 @@
   "view": "qml/Main.qml",
   "icon": "src/icons/uplink.png",
   "dependencies": [
-    {"name": "lez_core", "version": ">=0.5.0"},
+    {"name": "uplink_module", "version": ">=0.1.0"},
+    {"name": "lez_core", "version": ">=0.5.2"},
     {"name": "blockchain_module", "version": ">=0.3.0"}
   ],
+  "referral_program": {
+    "chain_id": "",
+    "program_account": ""
+  },
   "uses": [
     {"intent": "node.sign_referral_enrolment", "cardinality": "single"},
     {"intent": "node.sign_referral_payout", "cardinality": "single"},

@@ -28,7 +28,7 @@ LogosDialog {
         LogosText {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            text: qsTr("Each cash-out has its own payout code. Get one again if you didn’t copy it; your node signs it again.")
+            text: qsTr("Each cash-out has its own payout code. Get one again if you didn’t copy it; it’s signed again with your Blend key.")
             font.pixelSize: Theme.typography.primaryText
             color: Theme.palette.textSecondary
         }

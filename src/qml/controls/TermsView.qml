@@ -5,13 +5,13 @@ import QtQuick.Layouts
 import Logos.Theme
 import Logos.Controls
 
-import "Terms.js" as Terms
-
 // The program terms in a recessed, scrolling box. Shared by the onboarding step
-// (which gates acceptance on readToEnd) and the read-again dialog.
+// (which gates acceptance on readToEnd) and the read-again dialog. The text is
+// uplink_module's: [{title, items: [{t, h?, i?}]}].
 LogosFrame {
     id: root
 
+    property var sections: []
     readonly property bool readToEnd: d.readToEnd
 
     function reset() {
@@ -57,7 +57,7 @@ LogosFrame {
             spacing: Theme.spacing.medium
 
             Repeater {
-                model: Terms.sections
+                model: root.sections
 
                 ColumnLayout {
                     id: section
