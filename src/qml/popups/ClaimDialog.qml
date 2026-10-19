@@ -9,7 +9,7 @@ import Logos.UplinkUi 1.0
 import "../controls"
 
 // Claim rewards: why there's nothing to cash out yet, or one Cash out (collect, cash
-// out, prepare the code), then the payout code for the web form.
+// out, make the code with the Blend key), then the payout code for the web form.
 LogosDialog {
     id: root
 
@@ -17,7 +17,6 @@ LogosDialog {
 
     property string points: "0"           // claimable + balance
     property int referralCount: 0
-    property bool nodeActive: false
     property int cashOutState: UplinkUi.CashOutIdle
     property string payoutCode: ""
     property string payoutPoints: ""
@@ -25,7 +24,6 @@ LogosDialog {
     property string formUrl: ""
 
     signal cashOutRequested()
-    signal signAgainRequested()
     signal inviteRequested()
     signal finished()
 
@@ -39,23 +37,17 @@ LogosDialog {
         id: d
 
         readonly property bool done: root.cashOutState === UplinkUi.CashOutDone
-        readonly property bool signing: root.cashOutState === UplinkUi.SigningCode
-        // Signing failed: the points are cashed out, only the signature is asked for again.
-        readonly property bool signFailed: signing && root.error !== ""
         readonly property bool busy: root.cashOutState === UplinkUi.Collecting
                                      || root.cashOutState === UplinkUi.CashingOut
                                      || root.cashOutState === UplinkUi.PreparingCode
-                                     || signing
         readonly property bool empty: root.points === "0" && !busy && !done
-        readonly property bool blocked: !empty && !root.nodeActive && !busy && !done
-        readonly property bool ready: !empty && !blocked && !done
+        readonly property bool ready: !empty && !done
 
         readonly property string buttonText: {
             switch (root.cashOutState) {
             case UplinkUi.Collecting: return qsTr("Collecting…")
             case UplinkUi.CashingOut: return qsTr("Cashing out…")
             case UplinkUi.PreparingCode: return qsTr("Preparing your code…")
-            case UplinkUi.SigningCode: return d.signFailed ? qsTr("Sign again") : qsTr("Waiting for signature…")
             }
             return qsTr("Cash out")
         }
@@ -74,30 +66,16 @@ LogosDialog {
                   : qsTr("Points arrive for each epoch your referrals’ nodes are active — and yours is too. Keep accruing.")
         }
 
-        // ---- Points, but this node can't collect ------------------------------------
-
-        Section {
-            visible: d.blocked
-            title: qsTr("%1 points waiting").arg(root.points)
-            body: qsTr("Your node isn’t an active Blend core node this epoch, so you can’t collect yet. Check it in the Blockchain app; your points wait for you.")
-        }
-
         // ---- Cash out ------------------------------------------------------------------
 
         Section {
-            visible: d.signing
-            title: qsTr("Sign your payout code")
-            body: qsTr("Your points are cashed out. Approve the signature in the Blockchain app — it proves the code is yours, so nobody else can redeem it.")
-        }
-
-        Section {
-            visible: d.ready && !d.signing
+            visible: d.ready
             title: qsTr("Cash out")
             body: qsTr("Cashing out takes your <b>entire balance</b> in one go — no partial or fractional claims. Two things happen: Uplink first <b>collects</b> your points on-chain (settling your active referrals’ epochs into your balance — private, no identity), then cashes them out and prepares a payout code.")
         }
 
         InfoCard {
-            visible: d.ready && !d.signing
+            visible: d.ready
             title: qsTr("YOU WILL CASH OUT")
 
             LogosText {
@@ -110,7 +88,7 @@ LogosDialog {
         }
 
         Body {
-            visible: d.ready && !d.signing
+            visible: d.ready
             text: qsTr("You copy the payout code into the web claim form, where you add payout and identity details. <b>No identity or money is handled here.</b>")
         }
 
@@ -126,7 +104,7 @@ LogosDialog {
 
         Body {
             visible: d.done
-            text: qsTr("Points collected and cashed out. This code is for your full balance of <b>%1 points</b>, signed by your node so only you can redeem it. Copy it and paste it into the web claim form.").arg(root.payoutPoints)
+            text: qsTr("Points collected and cashed out. This code is for your full balance of <b>%1 points</b>, signed with your node’s Blend key so only you can redeem it. Copy it and paste it into the web claim form.").arg(root.payoutPoints)
         }
 
         RowLayout {
@@ -163,7 +141,7 @@ LogosDialog {
         LogosNotice {
             objectName: "uplink.claimError"
             Layout.fillWidth: true
-            shown: root.error !== "" && (!d.busy || d.signFailed) && !d.done
+            shown: root.error !== "" && !d.busy && !d.done
             severity: LogosNotice.Error
             message: root.error
         }
@@ -196,9 +174,9 @@ LogosDialog {
             visible: d.ready || d.busy
             Layout.minimumWidth: 160
             variant: LogosButton.Variant.Primary
-            enabled: (d.ready && !d.busy) || d.signFailed
+            enabled: d.ready && !d.busy
             text: d.buttonText
-            onClicked: d.signFailed ? root.signAgainRequested() : root.cashOutRequested()
+            onClicked: root.cashOutRequested()
         },
         LogosButton {
             objectName: "uplink.claimDoneButton"

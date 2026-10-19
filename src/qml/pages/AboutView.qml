@@ -1,6 +1,8 @@
 import QtQuick
 import QtQuick.Layouts
 
+import Logos.UplinkUi 1.0
+
 import Logos.Theme
 import Logos.Controls
 
@@ -15,8 +17,13 @@ LogosScrollView {
     objectName: "uplink.AboutView"
 
     property string referrerNode: ""   // "" = joined as a root
+    property bool autoClaim: true
+    property int keystoreIssue: UplinkUi.KeystoreNotChosen
+    property string keystorePath: ""
 
     signal readTermsRequested()
+    signal autoClaimToggled(bool on)
+    signal chooseKeystoreRequested()
 
     Item {
         width: root.availableWidth
@@ -33,7 +40,7 @@ LogosScrollView {
                 backgroundColor: Theme.palette.backgroundSecondary
 
                 Paragraph {
-                    text: qsTr("Uplink helps stress-test the Logos Testnet by bringing more people in to run nodes. You take part by inviting real people who run a Logos node and stay active; your own active node keeps you eligible to collect but earns you no points itself — only the people you invite do. You are not paid separately for running your own node (its block rewards live in the node app). Nobody, including us, can reconstruct who invited whom.")
+                    text: qsTr("Uplink helps stress-test the Logos Testnet by bringing more people in to run nodes. You take part by inviting real people who run a Logos node and stay active; your own node must be active in an epoch for that epoch to pay you, but it earns you no points itself — only the people you invite do. You are not paid separately for running your own node (its block rewards live in the node app). Nobody, including us, can reconstruct who invited whom.")
                 }
                 Paragraph {
                     text: qsTr("You see only the people who joined directly under you — one layer. Nobody sees deeper, including us. Participation is recognised a few levels deep, but only your direct layer is ever visible to you.")
@@ -101,6 +108,47 @@ LogosScrollView {
                             color: index < 2 || index % 2 === 1 ? Theme.palette.textSecondary : Theme.palette.text
                         }
                     }
+                }
+            }
+
+            InfoCard {
+                objectName: "uplink.settingsCard"
+                title: qsTr("SETTINGS")
+
+                LogosSwitch {
+                    objectName: "uplink.settingsAutoClaimSwitch"
+                    checked: root.autoClaim
+                    text: qsTr("Collect my points automatically")
+                    onToggled: root.autoClaimToggled(checked)
+                }
+                Paragraph {
+                    small: true
+                    text: qsTr("While Uplink is open it collects your points as soon as there are any, which also passes credit up to whoever invited you. Off: points wait until you cash out; nothing is lost by waiting.")
+                }
+
+                Paragraph {
+                    sub: true
+                    text: root.keystorePath !== ""
+                          ? qsTr("Keystore for your Blend key: %1").arg(root.keystorePath)
+                          : qsTr("Keystore for your Blend key: not chosen")
+                }
+                Paragraph {
+                    small: true
+                    visible: root.keystoreIssue === UplinkUi.KeystoreWrongNode
+                             || root.keystoreIssue === UplinkUi.KeystoreUnreadable
+                    color: Theme.palette.error
+                    text: root.keystoreIssue === UplinkUi.KeystoreWrongNode
+                          ? qsTr("This file holds a different node’s Blend key than the one running.")
+                          : qsTr("Uplink couldn’t read this file.")
+                }
+                Paragraph {
+                    small: true
+                    text: qsTr("Used only when you join, cash out or get a payout code. Uplink reads only the BlendSigning key from it, for that action, and never stores it.")
+                }
+                TextButton {
+                    objectName: "uplink.settingsChooseKeystoreButton"
+                    text: root.keystorePath !== "" ? qsTr("Change keystore…") : qsTr("Choose keystore.yaml…")
+                    onClicked: root.chooseKeystoreRequested()
                 }
             }
 

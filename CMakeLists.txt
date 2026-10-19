@@ -13,17 +13,20 @@ logos_module(
     SOURCES
         src/UplinkBackend.h
         src/UplinkBackend.cpp
-        src/InvitationCode.h
-        src/ActivityLog.h
-        src/PayoutCode.h
         src/interfaces/Result.h
         src/interfaces/ReferralService.h
         src/interfaces/NodeService.h
         src/lez/LezReferralService.h
+        src/lez/ReferralJson.h
         src/lez/LezReferralService.cpp
         src/blockchain/BlockchainNodeService.h
         src/blockchain/BlockchainNodeService.cpp
+        src/NodeRules.h
+        src/devnet/DevnetNodeJson.h
+        src/devnet/DevnetNodeService.h
+        src/devnet/DevnetNodeService.cpp
         src/mock/MockReferralService.h
+        src/mock/MockTerms.h
         src/mock/MockReferralService.cpp
         src/mock/MockNodeService.h
         src/mock/MockNodeService.cpp

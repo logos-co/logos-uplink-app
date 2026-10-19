@@ -73,6 +73,9 @@ LogosFrame {
             id: extras
 
             Layout.fillWidth: true
+            // A layout whose children all turn invisible keeps its last height, so a card that
+            // showed a notice would stay that tall once the notice hides.
+            Layout.preferredHeight: visibleChildren.length > 0 ? implicitHeight : 0
             spacing: Theme.spacing.small
         }
     }

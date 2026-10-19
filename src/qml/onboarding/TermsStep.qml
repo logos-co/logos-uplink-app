@@ -12,6 +12,8 @@ Item {
 
     objectName: "uplink.TermsStep"
 
+    property var sections: []
+    property string error: ""
     readonly property bool accepted: agree.checked
 
     function reset() {
@@ -37,6 +39,7 @@ Item {
 
             Layout.fillWidth: true
             Layout.fillHeight: true
+            sections: root.sections
         }
 
         LogosCheckbox {
@@ -46,6 +49,14 @@ Item {
             Layout.topMargin: Theme.spacing.small
             enabled: terms.readToEnd
             text: qsTr("I have read and accept the program terms")
+        }
+
+        LogosNotice {
+            objectName: "uplink.termsError"
+            Layout.fillWidth: true
+            shown: root.error !== ""
+            severity: LogosNotice.Error
+            message: root.error
         }
     }
 }

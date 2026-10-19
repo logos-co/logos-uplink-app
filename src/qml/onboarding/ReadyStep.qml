@@ -7,7 +7,8 @@ import Logos.UplinkUi 1.0
 
 import "../controls"
 
-// Step 2. The node signs the join and the LEZ wallet keeps the points, so both must be up.
+// Step 2. What joining needs running: the node (online, ideally Blend core), the LEZ wallet,
+// and the referral program on this network. The keystore holding the Blend key is chosen at Join, where it's used.
 StepPage {
     id: root
 
@@ -19,8 +20,12 @@ StepPage {
     property string walletDetail: ""
     property int syncedBlock: 0
     property int chainHeight: 0
+    property int programIssue: UplinkUi.ProgramUnknown
+    property string programDetail: ""
 
+    // The deployment is checked once the wallet is open, so Unknown here means not yet.
     readonly property bool ready: d.nodeDetected && d.walletReady
+                                  && root.programIssue === UplinkUi.ProgramReady
 
     signal openBlockchainAppRequested()
     signal openLezWalletRequested()
@@ -28,9 +33,10 @@ StepPage {
     QtObject {
         id: d
 
-        readonly property bool nodeDetected: root.nodeId !== ""
-                                             && root.nodeIssue !== UplinkUi.ModuleUnavailable
+        // nodeId stays "" until the node reports it (logos-blockchain-module 108).
+        readonly property bool nodeDetected: root.nodeIssue !== UplinkUi.ModuleUnavailable
                                              && root.nodeIssue !== UplinkUi.NodeNotRunning
+                                             && root.nodeIssue !== UplinkUi.NodeBootstrapping
         readonly property bool walletReady: root.walletIssue === UplinkUi.WalletReady
         readonly property bool syncing: d.walletReady && root.chainHeight > 0
                                         && root.syncedBlock < root.chainHeight
@@ -45,7 +51,7 @@ StepPage {
             case UplinkUi.NodeBootstrapping:
                 return qsTr("Your node is still starting up. You can join once it's online.")
             }
-            return qsTr("Your node is running, but Uplink can't read its key yet.")
+            return ""
         }
 
         function shortId(id) {
@@ -54,10 +60,11 @@ StepPage {
     }
 
     InfoCard {
+        objectName: "uplink.nodeCard"
         title: d.nodeDetected ? qsTr("YOUR NODE (DETECTED)") : qsTr("YOUR NODE (NOT DETECTED)")
         status: d.nodeDetected ? qsTr("Online") : ""
         detail: d.shortId(root.nodeId)
-        note: qsTr("Signs your join; this key is your identity in the program.")
+        note: qsTr("Its Blend signing key signs your join, and is your identity in the program.")
         showDetails: d.nodeDetected
 
         RowLayout {
@@ -95,6 +102,12 @@ StepPage {
                           : qsTr("Synced to block %1").arg(root.syncedBlock)
         note: qsTr("Joining adds a private points account to this wallet.")
         showDetails: d.walletReady
+
+        ProgramNotice {
+            Layout.fillWidth: true
+            issue: root.programIssue
+            detail: root.programDetail
+        }
 
         RowLayout {
             Layout.fillWidth: true

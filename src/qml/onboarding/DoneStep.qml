@@ -6,7 +6,7 @@ import Logos.Controls
 
 import "../controls"
 
-// Step 4: shown once, right after joining.
+// Step 4: shown once, right after joining. Also where auto-claim is chosen (on by default).
 StepPage {
     id: root
 
@@ -15,6 +15,9 @@ StepPage {
     property string referrerNode: ""   // "" = joined as a root
     property string accountLabel: ""
     property string accountAddress: ""
+    property bool autoClaim: true
+
+    signal autoClaimToggled(bool on)
 
     LogosText {
         Layout.fillWidth: true
@@ -36,5 +39,18 @@ StepPage {
                 : root.accountAddress
         copyText: root.accountAddress
         note: qsTr("A private account in your LEZ wallet. Your points are kept here; only you can see them.")
+    }
+
+    InfoCard {
+        objectName: "uplink.autoClaimCard"
+        title: qsTr("COLLECT AUTOMATICALLY")
+        note: qsTr("While Uplink is open it collects your points as soon as there are any, which also passes credit up to whoever invited you. Your Blend key isn’t needed for this. You can change it later in About.")
+
+        LogosSwitch {
+            objectName: "uplink.autoClaimSwitch"
+            checked: root.autoClaim
+            text: qsTr("Collect my points automatically")
+            onToggled: root.autoClaimToggled(checked)
+        }
     }
 }

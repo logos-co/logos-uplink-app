@@ -7,7 +7,8 @@ import Logos.UplinkUi 1.0
 
 import "../controls"
 
-// Step 3. Join under an inviter or as a root. The footer's button does the joining.
+// Step 3. Join under an inviter or as a root. The footer's button does the joining, after the
+// Blend key dialog (Main.qml) confirms the keystore.
 StepPage {
     id: root
 
@@ -42,7 +43,7 @@ StepPage {
         Layout.fillWidth: true
         wrapMode: Text.WordWrap
         textFormat: Text.StyledText
-        text: qsTr("<b>Your node is your identity.</b> Uplink joins with the Logos node it's running beside — no keys to type. Either way you can invite others and grow your own tree. Nobody, including us, can read or change who invited you.")
+        text: qsTr("<b>Your node is your identity.</b> Uplink joins with the Logos node it's running beside, signed with that node’s Blend key. Either way you can invite others and grow your own tree. Nobody, including us, can read or change who invited you.")
         font.pixelSize: Theme.typography.primaryText
         color: Theme.palette.textSecondary
     }

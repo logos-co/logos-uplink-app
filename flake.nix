@@ -8,7 +8,14 @@
 
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";
-    lez_core.url = "github:logos-blockchain/logos-execution-zone-module";
+    # The referral programme (logos-blockchain/uplink-module).
+    uplink_module = {
+      url = "github:logos-blockchain/uplink-module";
+      inputs.logos-module-builder.follows = "logos-module-builder";
+      inputs.lez_core.follows = "lez_core";
+    };
+    # send_generic_private_transaction_with_accounts (logos-execution-zone-module#69); use main once merged.
+    lez_core.url = "github:logos-blockchain/logos-execution-zone-module?rev=dde621ab4dbd873d8a2b314932a9f2180d03813a";
     blockchain_module.url = "github:logos-blockchain/logos-blockchain-module";
   };
 

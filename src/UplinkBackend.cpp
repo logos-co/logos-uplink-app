@@ -1,18 +1,24 @@
 #include "UplinkBackend.h"
 
 #include <algorithm>
+#include <dlfcn.h>
 
-#include <QRandomGenerator>
+#include <QDebug>
 #include <QDir>
-#include <QRegularExpression>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QPointer>
+#include <QRandomGenerator>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QUrl>
 #include <QVariantMap>
 
-#include "InvitationCode.h"
-#include "PayoutCode.h"
 #include "Points.h"
 #include "blockchain/BlockchainNodeService.h"
+#include "devnet/DevnetNodeService.h"
 #include "lez/LezReferralService.h"
 #include "mock/MockNodeService.h"
 #include "mock/MockReferralService.h"
@@ -23,18 +29,10 @@ namespace {
 
 constexpr int kPollMs = 5000;
 constexpr qint64 kSyncChunk = 100;   // blocks per step, as the LEZ Wallet app does
-
-
-// What Uplink asks the node app to sign. Each intent takes named values; the node app builds
-// the message from them and its own key, and answers with the signature.
-const QString kEnrolmentIntent = QStringLiteral("node.sign_referral_enrolment");
-const QString kPayoutIntent = QStringLiteral("node.sign_referral_payout");
+constexpr int kActivityEpochs = 16;
 
 // TODO: replace with the real payout form's URL once it exists. This is the prototype's form.
 const QString kPayoutFormUrl = QStringLiteral("https://xalisher.github.io/lx-preview/web/");
-
-// The node key is Ed25519.
-constexpr qsizetype kSignatureBytes = 64;
 
 // Names the points account in the user's LEZ wallet; also how Uplink finds it again.
 const QString kIdentityLabel = QStringLiteral("Uplink points account");
@@ -77,37 +75,100 @@ QString backendFor(const char* side)
     return both.isEmpty() ? qEnvironmentVariable(side) : both;
 }
 
+// Where the key file picker opens: Basecamp's data folder, as Basecamp names it
+// (LOGOS_USER_DIR, else <app data>/Logos/LogosBasecamp, "Dev" for dev builds). Uplink
+// doesn't know where the node keeps its files under it; the user finds keystore.yaml there.
+QString basecampDataFolder()
+{
+    const QString userDir = qEnvironmentVariable("LOGOS_USER_DIR");
+    QStringList candidates;
+    if (!userDir.isEmpty())
+        candidates << userDir;
+    const QString generic = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    candidates << generic + QStringLiteral("/Logos/LogosBasecampDev")
+               << generic + QStringLiteral("/Logos/LogosBasecamp")
+               << generic + QStringLiteral("/Logos");
+    for (const QString& dir : candidates)
+        if (QFileInfo(dir).isDir())
+            return dir;
+    return QDir::homePath();
+}
+
+QString localPath(const QString& pathOrUrl)
+{
+    const QUrl url(pathOrUrl.trimmed());
+    return url.isLocalFile() ? url.toLocalFile() : pathOrUrl.trimmed();
+}
+
+// This plugin's own metadata.json, read at startup as Blockchain UI reads its own. The host
+// installs it next to the plugin file, but the generated UI glue gets no module path (Blockchain
+// UI's hand-written plugin does, through initModuleContext), so the folder is that of the file
+// this code was loaded from.
+QVariantMap ownMetadata()
+{
+    Dl_info info{};
+    if (!dladdr(reinterpret_cast<void*>(&ownMetadata), &info) || !info.dli_fname) {
+        qWarning() << "Uplink: can't tell where the plugin is installed, so metadata.json is unread";
+        return {};
+    }
+    const QString path = QFileInfo(QString::fromLocal8Bit(info.dli_fname)).absoluteDir().filePath(QStringLiteral("metadata.json"));
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qWarning() << "Uplink: could not open" << path << "- no release deployment";
+        return {};
+    }
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    if (!doc.isObject()) {
+        qWarning() << "Uplink:" << path << "is not a JSON object - no release deployment";
+        return {};
+    }
+    return doc.object().toVariantMap();
+}
+
 } // namespace
 
 UplinkBackend::UplinkBackend(QObject* parent)
     : UplinkUiSimpleSource(parent)
 {
-    // real (default) | mock | mock:no_wallet
+    // real (default) | mock | mock:no_wallet | mock:no_program
     const QString lez = backendFor("UPLINK_LEZ");
-    if (lez.section(':', 0, 0) == QLatin1String("mock"))
-        m_referral = std::make_unique<MockReferralService>(lez.section(':', 1) != QLatin1String("no_wallet"));
-    else
+    const bool mock = lez.section(':', 0, 0) == QLatin1String("mock");
+    if (mock) {
+        auto service = std::make_unique<MockReferralService>(lez.section(':', 1) != QLatin1String("no_wallet"));
+        if (lez.section(':', 1) == QLatin1String("no_program"))
+            service->configure({});
+        m_referral = std::move(service);
+    } else
         m_referral = std::make_unique<LezReferralService>(*this);
 
-    // real (default) | mock | mock:<issue>
+    // real (default) | mock | mock:<issue> | devnet:<node API URL> (UPLINK_NODE_ID: its provider_id)
     const QString node = backendFor("UPLINK_NODE");
-    if (node.section(':', 0, 0) == QLatin1String("mock")) {
-        auto mock = std::make_unique<MockNodeService>(MockNodeService::issueFromName(node.section(':', 1)));
-        m_mockNodeApp = [n = mock.get()](const QVariantMap& request) { return n->answerSignRequest(request); };
-        m_node = std::move(mock);
-    } else
+    if (node.section(':', 0, 0) == QLatin1String("mock"))
+        m_node = std::make_unique<MockNodeService>(MockNodeService::issueFromName(node.section(':', 1)));
+    else if (node.startsWith(QLatin1String("devnet:")))
+        m_node = std::make_unique<DevnetNodeService>(QUrl(node.mid(7)), qEnvironmentVariable("UPLINK_NODE_ID"));
+    else
         m_node = std::make_unique<BlockchainNodeService>(*this);
 
     init();
+
+    // The deployment this release is for: metadata.json's referral_program. The mock is a
+    // network of its own, so a release's deployment means nothing there.
+    const QVariantMap release = ownMetadata().value(QStringLiteral("referral_program")).toMap();
+    const QString chain = release.value(QStringLiteral("chain_id")).toString().trimmed();
+    const QString program = release.value(QStringLiteral("program_account")).toString().trimmed();
+    qInfo() << "Uplink: release deployment" << (program.isEmpty() ? QStringLiteral("none") : program)
+            << "on chain" << (chain.isEmpty() ? QStringLiteral("any") : chain) << (mock ? "(ignored by the mock)" : "");
+    if (!mock)
+        setReleaseDeployment(chain, program);
 }
 
 UplinkBackend::UplinkBackend(std::unique_ptr<referral::ReferralService> referral,
                              std::unique_ptr<node::NodeService> node, const QString& dataDir,
-                             MockNodeApp mockNodeApp, QObject* parent)
+                             QObject* parent)
     : UplinkUiSimpleSource(parent)
     , m_referral(std::move(referral))
     , m_node(std::move(node))
-    , m_mockNodeApp(std::move(mockNodeApp))
     , m_dataDir(dataDir)
 {
     init();
@@ -115,16 +176,20 @@ UplinkBackend::UplinkBackend(std::unique_ptr<referral::ReferralService> referral
 
 void UplinkBackend::init()
 {
+    setProgramIssue(ProgramUnknown);
     setNodeIssue(ModuleUnavailable);
     setWalletIssue(LezCoreUnavailable);
     setEnrolState(NoIdentity);
     setCashOutState(CashOutIdle);
     setPayoutFormUrl(kPayoutFormUrl);
     setInvitationCheck(InvitationEmpty);
+    setKeystoreIssue(KeystoreNotChosen);
+    setKeystoreFolder(QUrl::fromLocalFile(basecampDataFolder()).toString());
     setClaimablePoints(QStringLiteral("0"));
     setRewardBalance(QStringLiteral("0"));
     setTotalPoints(QStringLiteral("0"));
     setCashedOutPoints(QStringLiteral("0"));
+    loadSettings();
 
     m_poll.setInterval(kPollMs);
     connect(&m_poll, &QTimer::timeout, this, &UplinkBackend::refresh);
@@ -138,15 +203,45 @@ void UplinkBackend::onContextReady()
     m_poll.start();
 }
 
+// Uplink's own settings: the key file's path and whether to claim automatically.
+void UplinkBackend::loadSettings()
+{
+    QSettings ini(dataFile(), QSettings::IniFormat);
+    setAutoClaim(ini.value(QStringLiteral("settings/autoClaim"), true).toBool());
+    QString path = ini.value(QStringLiteral("settings/keystorePath")).toString();
+    // The mock's node has a key file of its own, so the mock walkthrough needs no picker.
+    if (path.isEmpty() && dynamic_cast<MockReferralService*>(m_referral.get()))
+        path = MockReferralService::keystorePath();
+    setKeystorePath(path);
+}
+
+void UplinkBackend::setReleaseDeployment(const QString& chainId, const QString& programAccount)
+{
+    m_releaseChain = chainId;
+    m_releaseProgram = programAccount;
+    m_deploymentApplied = false;
+    setProgramIssue(ProgramUnknown);
+}
+
 void UplinkBackend::refresh()
 {
+    // uplink_module answers one call at a time, and is busy with the send.
+    if (m_sending)
+        return;
     refreshNode();
+    applyDeployment();
+    checkKeystore();
+    refreshTerms();   // the module's, whether or not a wallet is open
     refreshWallet();
     if (walletIssue() != WalletReady)
+        return;
+    checkProgram();
+    if (programIssue() != ProgramReady)
         return;
     syncWallet();
     reconcileOperations();
     refreshReferral();
+    autoClaimIfDue();
 }
 
 // Catches the wallet up in chunks so the event loop keeps turning. The LEZ Wallet
@@ -203,14 +298,88 @@ void UplinkBackend::refreshWallet()
     const auto labelled = m_referral->resolveLabel(kIdentityLabel);
     if (!labelled.ok() || labelled.value.compare(participantId(), Qt::CaseInsensitive) == 0)
         return;
-    if (labelled.value.isEmpty() && m_identityUnlabelled)
-        return;
     forgetIdentity();
     if (labelled.value.isEmpty())
         return;
     setParticipantId(labelled.value);
     setEnrolState(IdentityCreated);
     showIdentity();
+}
+
+void UplinkBackend::refreshTerms()
+{
+    if (termsVersion() == 0) {
+        const auto terms = m_referral->terms();
+        if (terms.ok()) {
+            setTermsVersion(terms.value.version);
+            setTermsSha256(terms.value.sha256);
+            setTermsLastUpdated(terms.value.lastUpdated);
+            setTermsSections(terms.value.sections);
+        }
+    }
+    const auto accepted = m_referral->termsAccepted();
+    if (accepted.ok())
+        setTermsAccepted(accepted.value);
+}
+
+// Reads only the file's public keys: which node it is for. Checked again when the running
+// node changes, so a key file for another node is caught before anything is signed.
+void UplinkBackend::checkKeystore()
+{
+    if (keystorePath().isEmpty()) {
+        setKeystoreIssue(KeystoreNotChosen);
+        return;
+    }
+    if (m_checkedKeystoreFor == nodeId() + QLatin1Char('|') + keystorePath() && keystoreIssue() != KeystoreNotChosen)
+        return;
+    m_checkedKeystoreFor = nodeId() + QLatin1Char('|') + keystorePath();
+    const auto keyNode = m_referral->keystoreNode(keystorePath());
+    if (!keyNode.ok()) {
+        setKeystoreNode({});
+        setKeystoreIssueDetail(keyNode.error);
+        setKeystoreIssue(KeystoreUnreadable);
+        m_checkedKeystoreFor.clear();   // try again next refresh (lez stack may not be up yet)
+        return;
+    }
+    setKeystoreNode(keyNode.value);
+    setKeystoreIssueDetail({});
+    const bool wrongNode = !nodeId().isEmpty() && keyNode.value.compare(nodeId(), Qt::CaseInsensitive) != 0;
+    setKeystoreIssue(wrongNode ? KeystoreWrongNode : KeystoreReady);
+}
+
+void UplinkBackend::chooseKeystore(QString pathOrUrl)
+{
+    setLastError({});
+    const QString path = localPath(pathOrUrl);
+    if (path.isEmpty())
+        return;
+    QSettings ini(dataFile(), QSettings::IniFormat);
+    ini.setValue(QStringLiteral("settings/keystorePath"), path);
+    setKeystorePath(path);
+    m_checkedKeystoreFor.clear();
+    checkKeystore();
+}
+
+void UplinkBackend::changeAutoClaim(bool on)
+{
+    QSettings ini(dataFile(), QSettings::IniFormat);
+    ini.setValue(QStringLiteral("settings/autoClaim"), on);
+    setAutoClaim(on);
+}
+
+void UplinkBackend::acceptTerms()
+{
+    setLastError({});
+    if (termsVersion() == 0) {
+        fail(QStringLiteral("The terms couldn't be loaded, so they can't be accepted yet."));
+        return;
+    }
+    const auto accepted = m_referral->acceptTerms(termsVersion(), termsSha256());
+    if (!accepted.ok()) {
+        fail(accepted.error);
+        return;
+    }
+    setTermsAccepted(accepted.value);
 }
 
 // Everything tied to the points account, as if none had been found.
@@ -223,18 +392,14 @@ void UplinkBackend::forgetIdentity()
     m_collectReference.clear();
     m_cashOutReference.clear();
     m_receiptsBefore.clear();
-    m_payoutOpening = {};
     m_labels.clear();
-    m_activity = {};
-    m_activityOwner.clear();
-    m_identityUnlabelled = false;
+    m_labelsOwner.clear();
     setParticipantId({});
     setIdentityLabel({});
     setIdentityAddress({});
     setEnrolState(NoIdentity);
     setReferrerNode({});
     setInvitation({});
-    setSignRequest({});
     setNodeActive(false);
     setMyActivity({});
     setReferrals({});
@@ -268,6 +433,53 @@ void UplinkBackend::refreshNode()
     setChainId(s.chainId);
 }
 
+// Selects the release's deployment in uplink_module, before anything is saved for it (terms
+// acceptance is the first). A release naming none leaves the module's own choice.
+void UplinkBackend::applyDeployment()
+{
+    if (!m_releaseChain.isEmpty() && !chainId().isEmpty() && chainId() != m_releaseChain) {
+        setProgramIssueDetail(tr("This Uplink release is for the %1 network, and your node is on %2.")
+                                  .arg(m_releaseChain, chainId()));
+        setProgramIssue(ProgramOtherNetwork);
+        return;
+    }
+    if (programIssue() == ProgramOtherNetwork) {
+        setProgramIssue(ProgramUnknown);
+        setProgramIssueDetail({});
+    }
+    if (m_releaseProgram.isEmpty() || m_deploymentApplied)
+        return;
+    const auto current = m_referral->programAccount();
+    if (!current.ok())
+        return;   // uplink_module isn't up yet
+    if (current.value.compare(m_releaseProgram, Qt::CaseInsensitive) != 0) {
+        const auto configured = m_referral->configure(m_releaseProgram);
+        if (!configured.ok()) {
+            qWarning() << "Uplink: uplink_module refused the release's program account:" << configured.error;
+            return;
+        }
+    }
+    m_deploymentApplied = true;
+}
+
+// Whether the selected deployment runs uplink_module's program, on the wallet's network.
+// Checked until it does; uplink_module checks again before every transaction.
+void UplinkBackend::checkProgram()
+{
+    if (programIssue() == ProgramReady || programIssue() == ProgramOtherNetwork)
+        return;
+    const auto check = m_referral->checkProgram();
+    if (!check.ok())
+        return;   // lez_core can't tell yet; try again next refresh
+    setProgramIssueDetail(check.value.detail);
+    switch (check.value.state) {
+    case referral::ProgramCheck::Ready: setProgramIssue(ProgramReady); break;
+    case referral::ProgramCheck::NotConfigured: setProgramIssue(ProgramNotConfigured); break;
+    case referral::ProgramCheck::NotDeployed: setProgramIssue(ProgramNotDeployed); break;
+    case referral::ProgramCheck::Mismatch: setProgramIssue(ProgramMismatch); break;
+    }
+}
+
 void UplinkBackend::refreshReferral()
 {
     const auto registry = m_referral->registry();
@@ -287,19 +499,40 @@ void UplinkBackend::refreshReferral()
     setEnrolState(Enrolled);
     setNodeActive(registry.value.active.contains(p.node));
     setReferrerNode(p.referrer);
+    loadLabels();
 
     const auto invitation = m_referral->invitation(participantId(), p.node);
     if (invitation.ok())
-        setInvitation(invitation_code::encode(invitation.value));
+        setInvitation(invitation.value);
 
     QStringList referralNodes = p.children.keys();
+    QMap<QString, quint32> joined = p.since;   // child node -> the epoch it joined in, where known
     const auto notes = m_referral->notes(participantId());
     if (notes.ok())
         for (const referral::Note& note : notes.value)
-            if (note.kind == referral::Note::Child && !referralNodes.contains(note.node))
-                referralNodes << note.node;
-    recordActivity(registry.value, p.node, referralNodes);
-    setMyActivity(m_activity.window(p.node));
+            if (note.kind == referral::Note::Child) {
+                if (!referralNodes.contains(note.node))
+                    referralNodes << note.node;
+                if (note.since > 0 && !joined.contains(note.node))
+                    joined.insert(note.node, note.since);
+            }
+
+    // The module knows each published epoch's active set (live, or from the indexer).
+    const auto activity = m_referral->activity(QStringList{p.node} + referralNodes, kActivityEpochs);
+    // -2 marks an epoch before the node joined, so the strip starts where it did.
+    auto marks = [&](const QString& node) {
+        QVariantList list;
+        if (!activity.ok())
+            return list;
+        const QList<int> nodeMarks = activity.value.nodes.value(node);
+        for (int i = 0; i < nodeMarks.size(); ++i) {
+            const bool before = joined.contains(node) && i < activity.value.epochs.size()
+                                && activity.value.epochs.at(i) < joined.value(node);
+            list << (before ? -2 : nodeMarks.at(i));
+        }
+        return list;
+    };
+    setMyActivity(marks(p.node));
 
     QVariantList referrals;
     auto addReferral = [&](const QString& node, quint32 lastPaid, bool pending) {
@@ -309,7 +542,9 @@ void UplinkBackend::refreshReferral()
             {QStringLiteral("activeThisEpoch"), registry.value.active.contains(node)},
             {QStringLiteral("lastPaidEpoch"), lastPaid},
             {QStringLiteral("pending"), pending},   // announced, not yet taken in by a claim
-            {QStringLiteral("activity"), m_activity.window(node)},
+            {QStringLiteral("activity"), marks(node)},
+            {QStringLiteral("joinedEpoch"), joined.value(node, 0)},   // 0 = unknown
+            {QStringLiteral("joinedAgo"), joined.contains(node) ? int(registry.value.epoch) - int(joined.value(node)) : -1},
         };
     };
     for (auto it = p.children.cbegin(); it != p.children.cend(); ++it)
@@ -326,7 +561,8 @@ void UplinkBackend::refreshReferral()
     setRewardBalance(points::normalized(p.rewardBalance));
     setTotalPoints(points::add(rewardBalance(), claimablePoints()));
 
-    const auto cashOuts = m_referral->receipts(participantId());
+    // The receipts the module already knows: listing them never reads the key.
+    const auto cashOuts = m_referral->receipts(participantId(), {});
     if (cashOuts.ok()) {
         QString cashedOut = QStringLiteral("0");
         QVariantList receipts;
@@ -343,33 +579,44 @@ void UplinkBackend::refreshReferral()
     }
 }
 
-// The program only holds the latest published epoch, so each one is noted as it appears,
-// for this node and every direct referral, in an INI file (one section per points account).
-void UplinkBackend::recordActivity(const referral::Registry& registry, const QString& myNode,
-                                   const QStringList& referralNodes)
+// Referral labels are Uplink's own, one INI section per points account.
+void UplinkBackend::loadLabels()
 {
+    if (m_labelsOwner == participantId())
+        return;
     QSettings ini(dataFile(), QSettings::IniFormat);
-    if (m_activityOwner != participantId()) {
-        ini.beginGroup(participantId() + QStringLiteral("/activity"));
-        m_activity = ActivityLog::readFrom(ini);
-        ini.endGroup();
-        ini.beginGroup(participantId() + QStringLiteral("/labels"));
-        m_labels.clear();
-        for (const QString& node : ini.childKeys())
-            m_labels.insert(node, ini.value(node).toString());
-        ini.endGroup();
-        m_activityOwner = participantId();
-    }
-    if (registry.epoch != 0   // nothing published yet
-            && m_activity.record(registry.epoch, QStringList{myNode} + referralNodes, registry.active)) {
-        ini.beginGroup(participantId() + QStringLiteral("/activity"));
-        m_activity.writeTo(ini);
-        ini.endGroup();
-    }
+    ini.beginGroup(participantId() + QStringLiteral("/labels"));
+    m_labels.clear();
+    for (const QString& node : ini.childKeys())
+        m_labels.insert(node, ini.value(node).toString());
+    ini.endGroup();
+    m_labelsOwner = participantId();
 }
 
-// Uplink's own data — activity seen and referral labels — one INI file, a section per
-// points account. None of it comes from the program.
+// Claim needs no Blend key (the wallet signs it), so it can run in the background.
+void UplinkBackend::autoClaimIfDue()
+{
+    if (!autoClaim() || enrolState() != Enrolled || cashOutState() != CashOutIdle || m_sending
+            || hasPendingOperation() || points::isZero(claimablePoints()))
+        return;
+    m_sending = true;
+    QPointer<UplinkBackend> self(this);
+    m_referral->autoClaimAsync(participantId(), [self](Result<QString> reference) {
+        if (!self)
+            return;
+        self->m_sending = false;
+        if (!reference.ok()) {
+            self->fail(reference.error);
+            return;
+        }
+        if (reference.value.isEmpty())
+            return;
+        self->m_operations.insert(reference.value, {QStringLiteral("claim"), OperationPending});
+        self->publishOperations();
+    });
+}
+
+// Uplink's own data — referral labels and settings — one INI file. None of it comes from the program.
 QString UplinkBackend::dataFile() const
 {
     const QString dir = !m_dataDir.isEmpty()
@@ -379,6 +626,12 @@ QString UplinkBackend::dataFile() const
     return dir + QStringLiteral("/uplink.ini");
 }
 
+bool UplinkBackend::hasPendingOperation() const
+{
+    return std::any_of(m_operations.cbegin(), m_operations.cend(),
+                       [](const Operation& op) { return op.status == OperationPending; });
+}
+
 void UplinkBackend::reconcileOperations()
 {
     bool changed = false;
@@ -386,12 +639,19 @@ void UplinkBackend::reconcileOperations()
     for (auto it = m_operations.begin(); it != m_operations.end(); ++it) {
         if (it->status != OperationPending)
             continue;
-        const auto status = m_referral->reconcile(it.key());
-        if (!status.ok() || toRep(status.value) == OperationPending)
+        const auto status = m_referral->status(it.key());
+        if (!status.ok()) {
+            it->status = OperationRejected;
+            changed = true;
+            settled.insert(it.key(), it->status);
+            fail(status.error);
+        } else if (toRep(status.value) != OperationPending) {
+            it->status = toRep(status.value);
+            changed = true;
+            settled.insert(it.key(), it->status);
+        } else {
             continue;
-        it->status = toRep(status.value);
-        changed = true;
-        settled.insert(it.key(), it->status);
+        }
         if (it.key() == m_registerReference && it->status == OperationRejected)
             setEnrolState(EnrolRejected);
     }
@@ -402,9 +662,9 @@ void UplinkBackend::reconcileOperations()
         const bool ok = settled.value(m_collectReference) == OperationSettled;
         m_collectReference.clear();
         if (ok)
-            startCashOut();
+            startCollecting();   // the next batch of epochs, or the cash-out once none is left
         else
-            failCashOut(QStringLiteral("Collecting your points was rejected. Your node may not have been active this epoch."));
+            failCashOut(QStringLiteral("Collecting your points was rejected."));
     }
     if (settled.contains(m_cashOutReference)) {
         const bool ok = settled.value(m_cashOutReference) == OperationSettled;
@@ -425,18 +685,14 @@ void UplinkBackend::createIdentity()
         fail(QStringLiteral("Set up your wallet in the LEZ Wallet app first."));
         return;
     }
-    const auto created = m_referral->createParticipant();
+    // The module labels the account, so it's found again next session.
+    const auto created = m_referral->createParticipant(kIdentityLabel);
     if (!created.ok()) {
         fail(created.error);
         return;
     }
     setParticipantId(created.value);
     setEnrolState(IdentityCreated);
-    // Without the label the identity can't be found again next session.
-    const auto labelled = m_referral->addLabel(kIdentityLabel, created.value);
-    m_identityUnlabelled = !labelled.ok();
-    if (!labelled.ok())
-        fail(labelled.error);
     showIdentity();
 }
 
@@ -447,23 +703,19 @@ void UplinkBackend::checkInvitation(QString code)
         setInvitationCheck(InvitationEmpty);
         return;
     }
-    const QString inviter = invitation_code::inviterNode(invitation_code::decode(code));
-    setInvitationInviter(inviter);
-    if (inviter.isEmpty()) {
+    const auto check = m_referral->checkInvitation(code.trimmed());
+    if (!check.ok()) {
+        setInvitationInviter({});
         setInvitationCheck(InvitationInvalid);
         return;
     }
-    if (!nodeId().isEmpty() && inviter.compare(nodeId(), Qt::CaseInsensitive) == 0) {
+    setInvitationInviter(check.value.referrer);
+    const QString me = !nodeId().isEmpty() ? nodeId() : keystoreNode();
+    if (!me.isEmpty() && check.value.referrer.compare(me, Qt::CaseInsensitive) == 0) {
         setInvitationCheck(InvitationOwn);
         return;
     }
-    // Only a registered node can be a referrer. If the registry can't be read, don't block on it.
-    const auto registry = m_referral->registry();
-    if (registry.ok() && !registry.value.nodes.contains(inviter, Qt::CaseInsensitive)) {
-        setInvitationCheck(InviterNotJoined);
-        return;
-    }
-    setInvitationCheck(InvitationOk);
+    setInvitationCheck(check.value.registered ? InvitationOk : InviterNotJoined);
 }
 
 void UplinkBackend::joinUnder(QString code)
@@ -473,12 +725,7 @@ void UplinkBackend::joinUnder(QString code)
         fail(QStringLiteral("Create an identity first."));
         return;
     }
-    const QString blob = invitation_code::decode(code);
-    if (blob.isEmpty()) {
-        fail(QStringLiteral("That doesn't look like an invitation code."));
-        return;
-    }
-    const auto parent = m_referral->importInvitation(participantId(), blob);
+    const auto parent = m_referral->importInvitation(participantId(), code.trimmed());
     if (!parent.ok()) {
         fail(parent.error);
         return;
@@ -487,7 +734,9 @@ void UplinkBackend::joinUnder(QString code)
     setEnrolState(Invited);
 }
 
-void UplinkBackend::prepareEnroll()
+// The Blend signing key signs inside uplink_module; Uplink hands it the keystore and the node
+// that's running, so a key file for another node is refused rather than enrolled.
+void UplinkBackend::enrol()
 {
     setLastError({});
     if (participantId().isEmpty()) {
@@ -496,152 +745,115 @@ void UplinkBackend::prepareEnroll()
     }
     if (enrolState() == Enrolling || enrolState() == Enrolled)
         return;
-    // Joining has no prerequisites beyond the node key signing the registration.
     refreshNode();
-    if (nodeIssue() == ModuleUnavailable || nodeIssue() == NodeNotRunning || nodeId().isEmpty()) {
-        fail(QStringLiteral("Your node needs to be running to sign your enrolment."));
+    checkKeystore();
+    if (nodeIssue() == ModuleUnavailable || nodeIssue() == NodeNotRunning) {
+        fail(QStringLiteral("Your node needs to be running to join."));
+        return;
+    }
+    switch (keystoreIssue()) {
+    case KeystoreNotChosen:
+        fail(QStringLiteral("Choose your node's keystore.yaml first: joining is signed with its Blend key."));
+        return;
+    case KeystoreUnreadable:
+        fail(QStringLiteral("Uplink couldn't read the keystore: %1").arg(keystoreIssueDetail()));
+        return;
+    case KeystoreWrongNode:
+        fail(QStringLiteral("This keystore holds a different node's Blend key than the one running. Choose the keystore.yaml of the node shown in the Blockchain app."));
+        return;
+    }
+    if (!termsAccepted()) {
+        fail(QStringLiteral("Accept the program terms first."));
         return;
     }
 
-    const auto program = m_referral->prepareRegistration(participantId(), nodeId(), referrerNode());
-    if (!program.ok()) {
-        fail(program.error);
-        return;
-    }
-    const QVariantMap params{
-        {QStringLiteral("program"), program.value},
-        {QStringLiteral("participant_account"), participantId()},
-        {QStringLiteral("referrer"), referrerNode()},
-    };
-    setEnrolState(AwaitingSignature);
-    askNodeApp(kEnrolmentIntent, params);
-}
-
-// QML sends signRequest as the intent and answers through complete* or report*. In mock mode
-// nothing answers the intent, so the mock node app answers here, through the same slots.
-void UplinkBackend::askNodeApp(const QString& intent, const QVariantMap& params)
-{
-    const QVariantMap request{
-        {QStringLiteral("ref"), newReference()},
-        {QStringLiteral("intent"), intent},
-        {QStringLiteral("params"), params},
-    };
-    setSignRequest(request);
-    if (!m_mockNodeApp)
-        return;
-    const QVariantMap answer = m_mockNodeApp(request);
-    const QString ref = request.value(QStringLiteral("ref")).toString();
-    const QString signature = answer.value(QStringLiteral("signature")).toString();
-    const QString publicKey = answer.value(QStringLiteral("public_key")).toString();
-    if (intent == kEnrolmentIntent)
-        completeEnroll(ref, signature, publicKey);
-    else
-        completePayoutSignature(ref, signature, publicKey);
-}
-
-void UplinkBackend::completeEnroll(QString requestRef, QString signatureHex, QString publicKeyHex)
-{
-    if (enrolState() != AwaitingSignature || !isCurrentSignRequest(requestRef))
-        return;
-    setLastError({});
-    const QString problem = checkSignature(signatureHex, publicKeyHex);
-    if (!problem.isEmpty()) {
-        fail(problem);
-        return;
-    }
-    submitRegistration(QByteArray::fromHex(signatureHex.toLatin1()));
-}
-
-// The node app answers asynchronously, so an answer can arrive after its request was replaced.
-bool UplinkBackend::isCurrentSignRequest(const QString& requestRef) const
-{
-    const QString current = signRequest().value(QStringLiteral("ref")).toString();
-    return !current.isEmpty() && requestRef == current;
-}
-
-// "" if the node app's answer is an Ed25519 signature from this node's key.
-QString UplinkBackend::checkSignature(const QString& signatureHex, const QString& publicKeyHex) const
-{
-    static const QRegularExpression hex(QStringLiteral("^[0-9a-fA-F]*$"));
-    if (signatureHex.size() != 2 * kSignatureBytes || !hex.match(signatureHex).hasMatch())
-        return QStringLiteral("The node app returned a malformed signature.");
-    if (!nodeId().isEmpty() && publicKeyHex.compare(nodeId(), Qt::CaseInsensitive) != 0)
-        return QStringLiteral("The signature is from a different node key.");
-    return {};
-}
-
-void UplinkBackend::submitRegistration(const QByteArray& signature)
-{
-    const auto attached = m_referral->attachNodeSignature(participantId(), signature);
-    if (!attached.ok()) {
-        fail(attached.error);
-        return;
-    }
+    // Joining shows while the transaction is proved and sent, which can take minutes.
     const QString reference = newReference();
-    const auto submitted = m_referral->submitRegister(reference, participantId());
-    if (!submitted.ok()) {
-        fail(submitted.error);
-        return;
-    }
-    m_registerReference = reference;
-    submit(QStringLiteral("register"), submitted, reference);
-    setSignRequest({});
+    const int before = enrolState();
     setEnrolState(Enrolling);
+    m_sending = true;
+    QPointer<UplinkBackend> self(this);
+    m_referral->enrolAsync(reference, participantId(), keystorePath(), nodeId(),
+                           [self, reference, before](Result<referral::Status> submitted) {
+        if (!self)
+            return;
+        self->m_sending = false;
+        if (!self->track(QStringLiteral("register"), submitted, reference)) {
+            self->setEnrolState(before);
+            return;
+        }
+        self->m_registerReference = reference;
+    });
 }
 
-// Stays AwaitingSignature so the user can retry.
-void UplinkBackend::reportSignFailed(QString requestRef, QString error)
-{
-    if (enrolState() != AwaitingSignature || !isCurrentSignRequest(requestRef))
-        return;
-    fail(error == QLatin1String("cancelled") ? QStringLiteral("Signing was cancelled.")
-                                             : QStringLiteral("The node app could not sign (%1).").arg(error));
-}
-
-// One action for the user: collect what's claimable, cash the whole balance out,
-// then turn the receipt's opening into the payout code. Each step waits for the
-// previous transaction to settle (reconcileOperations moves it on).
+// One action for the user: collect what's claimable, cash the whole balance out, then
+// make the payout code. Each step waits for the previous transaction to settle
+// (reconcileOperations moves it on).
 void UplinkBackend::cashOutAll()
 {
     setLastError({});
     if (enrolState() != Enrolled || cashOutState() != CashOutIdle)
         return;
-    if (!nodeActive()) {
-        fail(QStringLiteral("Your node isn't an active Blend core node this epoch, so you can't collect yet."));
+    if (keystoreIssue() != KeystoreReady) {
+        fail(QStringLiteral("Choose your node's keystore.yaml first: cashing out uses its Blend key."));
         return;
     }
-    const bool claimable = !points::isZero(claimablePoints());
-    if (!claimable && points::isZero(rewardBalance())) {
+    if (points::isZero(claimablePoints()) && points::isZero(rewardBalance())) {
         fail(QStringLiteral("No points to cash out yet."));
         return;
     }
-    if (!claimable) {
+    if (m_sending) {
+        fail(QStringLiteral("A collection is still being sent. Try again in a moment."));
+        return;
+    }
+    // An auto-claim still settling becomes this cash-out's collect step: it moves on when it lands.
+    for (auto it = m_operations.cbegin(); it != m_operations.cend(); ++it) {
+        if (it->status != OperationPending)
+            continue;
+        if (it->kind != QLatin1String("claim")) {
+            fail(QStringLiteral("Another operation is still settling. Try again in a moment."));
+            return;
+        }
+        m_collectReference = it.key();
+        setCashOutState(Collecting);
+        return;
+    }
+    setCashOutState(Collecting);
+    startCollecting();
+}
+
+// A claim covers at most 16 epochs, so a long catch-up takes a few.
+void UplinkBackend::startCollecting()
+{
+    const auto claimable = m_referral->claimable(participantId());
+    if (!claimable.ok()) {
+        failCashOut(claimable.error);
+        return;
+    }
+    if (points::isZero(claimable.value)) {
         startCashOut();
         return;
     }
-    const auto notes = m_referral->notes(participantId());
-    if (!notes.ok()) {
-        fail(notes.error);
-        return;
-    }
-    QStringList accounts;
-    for (const referral::Note& note : notes.value)
-        accounts << note.account;
     const QString reference = newReference();
-    const auto submitted = m_referral->submitClaim(reference, participantId(), accounts);
-    if (!submitted.ok()) {
-        failCashOut(submitted.error);
-        return;
-    }
-    m_collectReference = reference;
-    submit(QStringLiteral("claim"), submitted, reference);
     setCashOutState(Collecting);
+    m_sending = true;
+    QPointer<UplinkBackend> self(this);
+    m_referral->claimAsync(reference, participantId(), [self, reference](Result<referral::Status> submitted) {
+        if (!self)
+            return;
+        self->m_sending = false;
+        if (!self->track(QStringLiteral("claim"), submitted, reference)) {
+            self->failCashOut(self->lastError());
+            return;
+        }
+        self->m_collectReference = reference;
+    });
 }
 
 void UplinkBackend::startCashOut()
 {
     // So the receipt this cash-out makes can be told from the earlier ones.
-    const auto before = m_referral->receipts(participantId());
+    const auto before = m_referral->receipts(participantId(), {});
     if (!before.ok()) {
         failCashOut(before.error);
         return;
@@ -651,21 +863,27 @@ void UplinkBackend::startCashOut()
         m_receiptsBefore.insert(r.index);
 
     const QString reference = newReference();
-    const auto submitted = m_referral->cashOut(reference, participantId());
-    if (!submitted.ok()) {
-        failCashOut(submitted.error);
-        return;
-    }
-    m_cashOutReference = reference;
-    submit(QStringLiteral("cash_out"), submitted, reference);
     setCashOutState(CashingOut);
+    m_sending = true;
+    QPointer<UplinkBackend> self(this);
+    m_referral->cashOutAsync(reference, participantId(), keystorePath(),
+                             [self, reference](Result<referral::Status> submitted) {
+        if (!self)
+            return;
+        self->m_sending = false;
+        if (!self->track(QStringLiteral("cash_out"), submitted, reference)) {
+            self->failCashOut(self->lastError());
+            return;
+        }
+        self->m_cashOutReference = reference;
+    });
 }
 
 // The receipt a cash-out made is the one that wasn't there before it. Anything but
 // exactly one, and the user picks it from their cash-outs rather than Uplink guessing.
 void UplinkBackend::prepareNewReceiptCode()
 {
-    const auto receipts = m_referral->receipts(participantId());
+    const auto receipts = m_referral->receipts(participantId(), {});
     QList<quint64> fresh;
     if (receipts.ok())
         for (const referral::Receipt& r : receipts.value)
@@ -679,22 +897,27 @@ void UplinkBackend::prepareNewReceiptCode()
     preparePayoutCode(fresh.first());
 }
 
-// Also leaves a code being signed for another receipt.
 void UplinkBackend::payoutCodeFor(int receiptIndex)
 {
     if (enrolState() != Enrolled || receiptIndex < 0)
         return;
-    if (cashOutState() != CashOutIdle && cashOutState() != SigningCode && cashOutState() != CashOutDone)
+    if (cashOutState() != CashOutIdle && cashOutState() != CashOutDone)
         return;
     setLastError({});
     setPayoutCode({});
+    if (keystoreIssue() != KeystoreReady) {
+        fail(QStringLiteral("Choose your node's keystore.yaml first: the payout code is signed with its Blend key."));
+        return;
+    }
     preparePayoutCode(quint64(receiptIndex));
 }
 
+// The Blend signing key signs the code inside uplink_module, so only the node that earned the
+// points can redeem it.
 void UplinkBackend::preparePayoutCode(quint64 receiptIndex)
 {
     setCashOutState(PreparingCode);
-    const auto receipts = m_referral->receipts(participantId());
+    const auto receipts = m_referral->receipts(participantId(), {});
     if (!receipts.ok()) {
         failCashOut(receipts.error);
         return;
@@ -705,43 +928,14 @@ void UplinkBackend::preparePayoutCode(quint64 receiptIndex)
         failCashOut(QStringLiteral("That cash-out receipt wasn't found."));
         return;
     }
-    const auto opening = m_referral->opening(participantId(), receiptIndex);
-    if (!opening.ok()) {
-        failCashOut(opening.error);
+    const auto code = m_referral->payoutCode(participantId(), receiptIndex, keystorePath());
+    if (!code.ok()) {
+        failCashOut(QStringLiteral("Your points are cashed out, but the payout code couldn't be made (%1). Get it again from your cash-outs.").arg(code.error));
         return;
     }
     setPayoutPoints(points::normalized(receipt->points));
-    m_payoutOpening = opening.value;
-
-    setCashOutState(SigningCode);
-    askNodeApp(kPayoutIntent, {
-        {QStringLiteral("program_account"), m_payoutOpening.programAccount},
-        {QStringLiteral("blinding_factor"), m_payoutOpening.blindingFactor},
-    });
-}
-
-void UplinkBackend::completePayoutSignature(QString requestRef, QString signatureHex, QString publicKeyHex)
-{
-    if (cashOutState() != SigningCode || !isCurrentSignRequest(requestRef))
-        return;
-    setLastError({});
-    const QString problem = checkSignature(signatureHex, publicKeyHex);
-    if (!problem.isEmpty()) {
-        fail(problem);
-        return;
-    }
-    setPayoutCode(payout_code::encode(m_payoutOpening, signatureHex));
-    setSignRequest({});
+    setPayoutCode(code.value);
     setCashOutState(CashOutDone);
-}
-
-// The points are already cashed out; only the signature is missing, so asking again retries.
-void UplinkBackend::reportPayoutSignFailed(QString requestRef, QString error)
-{
-    if (cashOutState() != SigningCode || !isCurrentSignRequest(requestRef))
-        return;
-    fail(error == QLatin1String("cancelled") ? QStringLiteral("Signing was cancelled. Your points are cashed out; sign again to get your code.")
-                                             : QStringLiteral("The node app could not sign (%1). Your points are cashed out; sign again to get your code.").arg(error));
 }
 
 void UplinkBackend::failCashOut(const QString& error)
@@ -749,14 +943,12 @@ void UplinkBackend::failCashOut(const QString& error)
     m_collectReference.clear();
     m_cashOutReference.clear();
     m_receiptsBefore.clear();
-    setSignRequest({});
     setCashOutState(CashOutIdle);
     fail(error);
 }
 
 void UplinkBackend::finishCashOut()
 {
-    m_payoutOpening = {};
     setPayoutCode({});
     setPayoutPoints({});
     setCashOutState(CashOutIdle);
@@ -779,14 +971,16 @@ void UplinkBackend::setReferralLabel(QString node, QString label)
     refreshReferral();
 }
 
-void UplinkBackend::submit(const QString& kind, const Result<referral::Status>& submitted, const QString& reference)
+// Records a submitted operation; false (with lastError set) if it wasn't submitted.
+bool UplinkBackend::track(const QString& kind, const Result<referral::Status>& submitted, const QString& reference)
 {
     if (!submitted.ok()) {
         fail(submitted.error);
-        return;
+        return false;
     }
     m_operations.insert(reference, {kind, toRep(submitted.value)});
     publishOperations();
+    return true;
 }
 
 void UplinkBackend::publishOperations()

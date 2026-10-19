@@ -1,8 +1,6 @@
 #include "mock/MockNodeService.h"
 
 #include <QCryptographicHash>
-#include <QJsonDocument>
-#include <QJsonObject>
 
 using node::Issue;
 
@@ -53,15 +51,4 @@ node::Status MockNodeService::status()
     return s;
 }
 
-// 64 bytes that differ per intent and params; the node app's real message is its own business.
-QVariantMap MockNodeService::answerSignRequest(const QVariantMap& request) const
-{
-    const QByteArray message = request.value(QStringLiteral("intent")).toString().toUtf8() + '\0'
-        + QJsonDocument(QJsonObject::fromVariantMap(request.value(QStringLiteral("params")).toMap()))
-              .toJson(QJsonDocument::Compact);
-    return {
-        {QStringLiteral("signature"),
-         QString::fromLatin1(QCryptographicHash::hash(message, QCryptographicHash::Sha512).toHex())},
-        {QStringLiteral("public_key"), kNodeId},
-    };
-}
+QString MockNodeService::nodeId() { return kNodeId; }

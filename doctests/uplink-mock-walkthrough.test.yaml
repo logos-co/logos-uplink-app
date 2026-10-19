@@ -11,13 +11,13 @@ intro: |
   [`logos-qt-mcp`](https://github.com/logos-co/logos-qt-mcp), so each step goes
   through the actual UI → `UplinkBackend` → referral service chain.
 
-  The referral program's LEZ calls don't exist yet, so the app runs on its
-  **mock backend** (`UPLINK_BACKEND=mock`): an in-memory referral program and a
-  node that is Online, a Blend core node, and signs without asking. The mock
-  follows the program's rules as Uplink assumes them (see
-  `src/mock/MockReferralService.h`): joining seeds three referrals, the oracle
-  publishes an epoch every 40 seconds here, and your own node sits out every
-  fourth epoch.
+  The app runs on its **mock backend** (`UPLINK_BACKEND=mock`): an in-memory
+  referral program in place of `uplink_module`, a node that is Online and a
+  Blend core node, and a keystore for it that Uplink finds by itself. The mock
+  follows the program's rules (see `src/mock/MockReferralService.h`): joining
+  seeds three referrals, the oracle publishes an epoch every 40 seconds here,
+  points for every epoch wait until they're collected, and your own node sits
+  out every fourth epoch.
 
 what_you_build: "The Uplink standalone app on its mock backend, launched headless and driven from the welcome screen to a payout code, plus the Ready step as it looks when neither the node nor the wallet is up."
 
@@ -157,10 +157,11 @@ sections:
               texts: ["YOUR NODE (DETECTED)", "YOUR LEZ WALLET (OPEN)"]
               timeout: 15000
               text: |
-                Uplink needs two things before anyone joins: a running node,
-                whose key signs the join and is your identity in the program,
-                and an open LEZ wallet, which holds your points account. The
-                next section shows this step when neither is ready.
+                Uplink needs two things running before anyone joins: your node,
+                whose key is your identity in the program, and an open LEZ
+                wallet, which holds your points account. The referral program
+                must also be available on this network. The next section shows
+                this step when nothing is ready.
               screenshot: "uplink-ready.png"
 
             - name: "Continue to the Join step"
@@ -182,7 +183,7 @@ sections:
               timeout: 5000
               text: |
                 The code is checked as it changes, so a wrong paste says why
-                before anything is signed. A code from an inviter who hasn't
+                before anything is sent. A code from an inviter who hasn't
                 joined, or your own, is refused the same way.
               screenshot: "uplink-join-invalid.png"
 
@@ -190,10 +191,10 @@ sections:
               action: set_text
               find_by: "objectName"
               find_value: "uplink.invitationInput"
-              value: "uplink-invite:eyJucGsiOiI4Mzg2MDU0OTViYjBmYTIwNDVkN2MyMjJhMWNlNzllNzAyY2EzMzU2YzViNzEzMjhkMjEwMzczYzQ2YzlhMTVmIiwicGFyZW50X25vZGUiOiIxNWQzZGExMzAxM2VjYThjYjhmZTQ3OWEzY2I4OGM5NTE1Y2YwMjVjNDM3OTU5ZDZhNzNlNWE3N2JjYTNiZjNhIiwidnBrIjoiYThiYmQzZGM0MDk5ZGNjZDZhNDMwMjc5NmVhMjU5NDQ3MTYyOGNiZWVjY2ZmMjkwYjE0MTIxNDUyNTBhMmRmZiJ9"
+              value: "uplink-invite-v1:FdPaEwE-yoy4_keaPLiMlRXPAlxDeVnWpz5ad7yjvzqDhgVJW7D6IEXXwiKhznnnAsozVsW3EyjSEDc8RsmhX7IfnRU970XuuiKr0n_7f3WjcU4ORsmFU38RrIctivVHMl9ytHsznYH1Qv2vqXW-NS6y-J_2uxa5cGA8xaecsU4BHHbTE2tGDMNlrrIBv46TJ6e9cNyT1Z5K-0EnBvcNpQMbAfdwx2uJE6wsctZqm3jJXBYP9ovcvDs3h_zT_lO5FAy6dO2OslkAegD4DNsRNqKMYy_BZFps1vEyF_DRLHv5YPWssjS0sJuwjAbCA5m9CyPviBAxf1jfqjprL1jZRR0mQoTUD-p8z1xmy3t4L52nfuwPhWX2mYVXPCi_1aMvJ-EvY34IlMNRvkyyPkBHqlIdH_XXlHiJjdwwYU7I9r3gBPnN4T9UUXfAQ1dWfTgpG5D_KDX44ASTNq_ZMOdVnmj1nTpAfwlclVOgNw-P8O0iSvJlfRR6UEjzWnpNtQldwbJ7BtEgLSFz2EbnU0cZfoRYujjdbllwHyjKFdrLcyoDxC3FdLMXXcnp5r6FfIhSQKj38aWQSHlo0UK_5ilumRHFP5tTp-_OXAAUTsd8g2Mz4amJAg7e0kgW3GlumZ3yylp365rNuZ4pEbtcosPmmF403NXkkpcGiZB_n-xq-T9pXiJGXXLXm0TmRCeFBz2TO3dHKL7iW-zirlE7A7ZBsijDYDdAFN-fLCvRCYocQEs6uUeIWGt4Q2EMBHM0Rh06_0iavvcrezrshjjoge1zEBERU16-fAXtwh_-XPi8575bbtQVG4Mqq7VwETlN5681MzIecM0pK2wQdRDr5SafDjMS25IcnHRCzpDU3eZlqjWJl-_hT9NQAhB1yhmv-NXjkIpxsefr_g0tWZnT5ucYpjPuoWDY6kIBNcl9kUV1JUVArJBK5dtPnLLQFxccKw6Nh4UCNLkvEkRzFvGKV0t2zkGSae08OXliL8ZY0V8c0ICF4UvIy-RplGahNwHjoo2_LYvdgStmjvsS-u1FCu-k8KMTP8zuvYzdqortABbxvO6WfGC4pu4XCxAJsX-uWULzTyONTeIpLlTxUN4xmI6h_25Pjn96B9FUdZCC5EJoZ-7OKeSV3XjMoyjBPbeO0aXMl-CdrbHBev64jwN4N9LYashlAYDVlTD4pdSLj_QcKOQaRBPYES8eKpVASod7Jw8s18eV3mipejD6Vr7TMT1nhwmIn1SR_cz55K0EeBqLlM1vB4T4fPVhUWE6G9lOtGJItf_u21lXndb9L5B8fBgQh-j5_ivPoLNrh9rYgsDuZKfOQvbGCMbQZZj1LZzsfHkjuczvYy3FGApUN4936iqS1ZcuZoO7GpLAna5bNqN9DZvqQomoMRx1Ge6_AjtRIp4x3ocIj4AT52tjXMfwnFfh9OHFXYlscHncuXaWhmC4oUNtSkJ0sFsZNoveYTOiRuO_4fV02_0CKqbjHv5OTbIXbS0YHtynFHN2rlDApyJTsnIDzz0V4V3qZvXxD4_EcZTqzN94LEyBbmB28r19pX-S3kvuU9_a2B1qGxm-r6FpsI3ZeFfB0xGUCsvtdBsVeptd2mXx6RQosY_5-uySjHF68TLAiMJTYUu7iA1TREUX-eTw8SWC3e1h7J39n_1qh9B4"
             - name: "The invitation is accepted"
               action: wait_for
-              texts: ["Import invitation & sign"]
+              texts: ["Import invitation & join"]
               timeout: 5000
               text: |
                 This is the mock's built-in inviter: a node that is already in
@@ -204,15 +205,33 @@ sections:
               action: click_object
               find_by: "objectName"
               find_value: "uplink.onboardingAdvanceButton"
+            - name: "Joining asks to sign with the Blend key"
+              action: wait_for
+              texts: ["Sign with your Blend key", "YOUR NODE’S KEYSTORE"]
+              timeout: 5000
+              text: |
+                Every use of the node's Blend signing key is confirmed: what it
+                signs, and the `keystore.yaml` it's read from. Uplink remembers
+                the file's path, never the key, and reads only the BlendSigning
+                key, only for the action you confirm. The mock's node comes with
+                its keystore already chosen; otherwise **Choose keystore.yaml…**
+                opens a file picker at Basecamp's data folder.
+              screenshot: "uplink-join-blend-key.png"
+            - name: "Sign and join"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.blendKeyConfirmButton"
             - name: "The join lands"
               action: wait_for
               texts: ["UPLINK POINTS ACCOUNT"]
               timeout: 30000
               text: |
-                Joining creates a points account in the LEZ wallet, has the node
-                sign the registration, and submits it. Uplink checks back every
-                five seconds; once the registration has settled, this is the
-                last onboarding step.
+                Joining creates a points account in the LEZ wallet, signs the
+                registration with the node's Blend key from its keystore, and submits
+                it. Uplink checks back every five seconds; once the registration
+                has settled, this is the last onboarding step. It also asks
+                whether to collect points automatically: on by default, and
+                changeable later in About.
             - name: "Let the page settle"
               action: sleep
               ms: 1500
@@ -269,15 +288,20 @@ sections:
               action: sleep
               ms: 1000
               text: |
-                Cashing out always takes the whole balance. It collects what your
-                referrals earned you, cashes the balance out into a receipt, and
-                has your node sign the receipt's details into a payout code.
+                Cashing out always takes the whole balance. It collects anything
+                not yet collected, cashes the balance out into a receipt, and
+                signs the receipt's details into a payout code with your node's
+                Blend key, read once from its keystore.
               screenshot: "uplink-claim.png"
 
             - name: "Cash out"
               action: click_object
               find_by: "objectName"
               find_value: "uplink.cashOutButton"
+            - name: "Confirm with the Blend key"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.blendKeyConfirmButton"
             - name: "Collect and cash out settle"
               action: wait_for
               texts: ["3 cashed out so far"]
@@ -307,14 +331,18 @@ sections:
               action: sleep
               ms: 1000
               text: |
-                If the code wasn't copied — Uplink was closed, or the signature
-                was cancelled — it can be got again from here. The node signs
+                If the code wasn't copied — Uplink was closed, or the dialog was
+                dismissed — it can be got again from here. The Blend key signs
                 the same receipt again, so it's the same code.
               screenshot: "uplink-cash-outs.png"
             - name: "Get the code again"
               action: click_object
               find_by: "objectName"
               find_value: "uplink.cashOutCodeButton"
+            - name: "Confirm with the Blend key again"
+              action: click_object
+              find_by: "objectName"
+              find_value: "uplink.blendKeyConfirmButton"
             - name: "Let the code show"
               action: sleep
               ms: 2000
@@ -388,4 +416,4 @@ sections:
               find_by: "objectName"
               find_value: "uplink.onboardingAdvanceHint"
               property: "text"
-              value: "Your node and LEZ wallet need to be ready."
+              value: "Your node and your LEZ wallet need to be ready."

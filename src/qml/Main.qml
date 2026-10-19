@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Dialogs
 import QtQuick.Layouts
 
 import Logos.Theme
@@ -7,6 +8,7 @@ import Logos.UplinkUi 1.0
 
 import "onboarding"
 import "pages"
+import "popups"
 
 Rectangle {
     id: root
@@ -18,15 +20,15 @@ Rectangle {
 
         readonly property var backend: logos.module("uplink_ui")
         property bool creatingIdentity: false
-        property bool signAfterImport: false
+        property bool enrolAfterImport: false
         property string pendingInvitation: ""   // carried across account creation
+        property var afterBlendKey: null        // what runs once the Blend key dialog is confirmed
 
         readonly property int welcomePage: 0
         readonly property int onboardingPage: 1
         readonly property int overviewPage: 2
 
-        // Joining is the acceptance (the node signs after the terms), so a joined user
-        // never sees the welcome or the terms again.
+        // A joined user accepted the terms on the way in, so never sees the welcome or the terms again.
         onBackendChanged: d.showJoinedIfEnrolled()
         Component.onCompleted: d.showJoinedIfEnrolled()
 
@@ -58,41 +60,21 @@ Rectangle {
             d.continueJoin()
         }
 
+        // The Blend signing key signs inside uplink_module, read from the keystore the user chose.
         function continueJoin() {
             if (d.pendingInvitation !== "") {
-                d.signAfterImport = true
+                d.enrolAfterImport = true
                 d.backend.joinUnder(d.pendingInvitation)
             } else {
-                d.backend.prepareEnroll()
+                d.backend.enrol()
             }
         }
 
-        // The node app signs on the user's approval; the shell brings them back here.
-        // Used for the join and for the payout code.
-        // The answer names its request, so the backend can drop one that's been replaced.
-        function requestNodeSignature(onSigned, onFailed) {
-            const request = d.backend.signRequest
-            const ref = request.ref
-            if (!d.canRequest()) {
-                onFailed(ref, "unavailable")
-                return
-            }
-            logos.request(request.intent, request.params, function (res) {
-                if (res.ok)
-                    onSigned(ref, res.data.signature, res.data.public_key)
-                else
-                    onFailed(ref, res.error)
-            })
-        }
-
-        function requestSignature() {
-            d.requestNodeSignature(function (ref, sig, key) { d.backend.completeEnroll(ref, sig, key) },
-                                   function (ref, error) { d.backend.reportSignFailed(ref, error) })
-        }
-
-        function requestPayoutSignature() {
-            d.requestNodeSignature(function (ref, sig, key) { d.backend.completePayoutSignature(ref, sig, key) },
-                                   function (ref, error) { d.backend.reportPayoutSignFailed(ref, error) })
+        // Every use of the Blend signing key is confirmed first, with the keystore it's read from.
+        function withBlendKey(action, then) {
+            d.afterBlendKey = then
+            blendKeyDialog.action = action
+            blendKeyDialog.open()
         }
 
         // A hand-off: the shell opens the app, or offers to install it, and leaves the user there.
@@ -129,6 +111,8 @@ Rectangle {
 
         WelcomePage {
             network: d.backend ? d.backend.chainId : ""
+            programIssue: d.backend ? d.backend.programIssue : UplinkUi.ProgramUnknown
+            programDetail: d.backend ? d.backend.programIssueDetail : ""
             onJoinRequested: d.join()
         }
 
@@ -149,9 +133,18 @@ Rectangle {
             referrerNode: d.backend ? d.backend.referrerNode : ""
             accountLabel: d.backend ? d.backend.identityLabel : ""
             accountAddress: d.backend ? d.backend.identityAddress : ""
+            termsSections: d.backend ? d.backend.termsSections : []
+            termsAccepted: d.backend ? d.backend.termsAccepted : false
+            autoClaim: d.backend ? d.backend.autoClaim : true
+            programIssue: d.backend ? d.backend.programIssue : UplinkUi.ProgramUnknown
+            programDetail: d.backend ? d.backend.programIssueDetail : ""
 
             onExitRequested: pages.currentIndex = d.welcomePage
-            onJoinRequested: function (invitation) { d.startJoin(invitation) }
+            onAcceptTermsRequested: d.backend.acceptTerms()
+            onAutoClaimToggled: function (on) { d.backend.changeAutoClaim(on) }
+            onJoinRequested: function (invitation) {
+                d.withBlendKey("join", function () { d.startJoin(invitation) })
+            }
             onInvitationEdited: function (text) { d.backend.checkInvitation(text) }
             onOpenBlockchainAppRequested: d.launchApp("blockchain_ui", qsTr("Blockchain"),
                 qsTr("Open it from the Basecamp sidebar and start your node, then come back."))
@@ -161,6 +154,8 @@ Rectangle {
         }
 
         OverviewPage {
+            id: overview
+
             network: d.backend ? d.backend.chainId : ""
             points: d.backend ? d.backend.totalPoints : "0"
             cashedOut: d.backend ? d.backend.cashedOutPoints : "0"
@@ -177,11 +172,52 @@ Rectangle {
             payoutPoints: d.backend ? d.backend.payoutPoints : ""
             error: d.backend ? d.backend.lastError : ""
             payoutFormUrl: d.backend ? d.backend.payoutFormUrl : ""
-            onCashOutRequested: d.backend.cashOutAll()
-            onSignAgainRequested: d.requestPayoutSignature()
-            onPayoutCodeRequested: function (index) { d.backend.payoutCodeFor(index) }
+            termsSections: d.backend ? d.backend.termsSections : []
+            autoClaim: d.backend ? d.backend.autoClaim : true
+            keystoreIssue: d.backend ? d.backend.keystoreIssue : UplinkUi.KeystoreNotChosen
+            keystorePath: d.backend ? d.backend.keystorePath : ""
+            programIssue: d.backend ? d.backend.programIssue : UplinkUi.ProgramUnknown
+            programDetail: d.backend ? d.backend.programIssueDetail : ""
+            onCashOutRequested: d.withBlendKey("cashOut", function () { d.backend.cashOutAll() })
+            onAutoClaimToggled: function (on) { d.backend.changeAutoClaim(on) }
+            onChooseKeystoreRequested: keystoreDialog.open()
+            onPayoutCodeRequested: function (index) {
+                d.withBlendKey("payoutCode", function () {
+                    d.backend.payoutCodeFor(index)
+                    overview.showClaim()
+                })
+            }
             onCashOutFinished: d.backend.finishCashOut()
             onLabelEdited: function (node, label) { d.backend.setReferralLabel(node, label) }
+        }
+    }
+
+    // Opens at Basecamp's data folder; Uplink doesn't know where under it the node keeps its
+    // files, so the user finds the node's keystore.yaml there.
+    FileDialog {
+        id: keystoreDialog
+
+        objectName: "uplink.keystoreDialog"
+        title: qsTr("Choose your node’s keystore.yaml")
+        currentFolder: d.backend ? d.backend.keystoreFolder : ""
+        nameFilters: [qsTr("Keystore (*.yaml *.yml)"), qsTr("All files (*)")]
+        onAccepted: d.backend.chooseKeystore(selectedFile.toString())
+    }
+
+    BlendKeyDialog {
+        id: blendKeyDialog
+
+        anchors.centerIn: parent
+        keystoreIssue: d.backend ? d.backend.keystoreIssue : UplinkUi.KeystoreNotChosen
+        keystorePath: d.backend ? d.backend.keystorePath : ""
+        keystoreNode: d.backend ? d.backend.keystoreNode : ""
+        keystoreDetail: d.backend ? d.backend.keystoreIssueDetail : ""
+        onChooseKeystoreRequested: keystoreDialog.open()
+        onConfirmed: {
+            const then = d.afterBlendKey
+            d.afterBlendKey = null
+            if (then)
+                then()
         }
     }
 
@@ -210,13 +246,10 @@ Rectangle {
         function onEnrolStateChanged() {
             switch (d.backend.enrolState) {
             case UplinkUi.Invited:
-                if (d.signAfterImport) {
-                    d.signAfterImport = false
-                    d.backend.prepareEnroll()
+                if (d.enrolAfterImport) {
+                    d.enrolAfterImport = false
+                    d.backend.enrol()
                 }
-                break
-            case UplinkUi.AwaitingSignature:
-                d.requestSignature()
                 break
             case UplinkUi.Enrolled:
                 if (pages.currentIndex !== d.onboardingPage)
@@ -230,15 +263,10 @@ Rectangle {
             }
         }
 
-        function onCashOutStateChanged() {
-            if (d.backend.cashOutState === UplinkUi.SigningCode)
-                d.requestPayoutSignature()
-        }
-
         function onLastErrorChanged() {
             if (d.backend.lastError === "")
                 return
-            d.signAfterImport = false
+            d.enrolAfterImport = false
             d.creatingIdentity = false
         }
     }
