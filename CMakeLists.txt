@@ -21,6 +21,10 @@ logos_module(
         src/lez/LezReferralService.cpp
         src/blockchain/BlockchainNodeService.h
         src/blockchain/BlockchainNodeService.cpp
+        src/NodeRules.h
+        src/devnet/DevnetNodeJson.h
+        src/devnet/DevnetNodeService.h
+        src/devnet/DevnetNodeService.cpp
         src/mock/MockReferralService.h
         src/mock/MockTerms.h
         src/mock/MockReferralService.cpp
