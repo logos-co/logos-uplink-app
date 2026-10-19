@@ -150,23 +150,10 @@ test("join: choosing my own tree changes the action", async (app) => {
   await waitProp(app, "uplink.onboardingAdvanceButton", "text", is("Import invitation & join"));
 });
 
-test("join: joining asks to sign with the Blend key from the keystore, and Cancel joins nothing", async (app) => {
+// The node's key stays with the node app (the Blockchain app), which signs on the user's
+// approval; in mock mode a mock node app answers at once, so nothing shows here.
+test("join: the node app signs, the join lands, and Done shows the points account", async (app) => {
   await click(app, "uplink.onboardingAdvanceButton");
-  await waitProp(app, "uplink.BlendKeyDialog", "opened", is(true));
-  await waitProp(app, "uplink.blendKeyConfirmButton", "text", is("Sign and join"));
-  await waitProp(app, "uplink.BlendKeyDialog", "title", is("Sign with your Blend key"));
-  // The mock's keystore is already chosen, so the main button signs and Change… sits beside it.
-  await waitProp(app, "uplink.blendKeyChooseButton", "visible", is(true));
-  await waitProp(app, "uplink.blendKeyChooseButton", "text", is("Change…"));
-  await click(app, "uplink.blendKeyCancelButton");
-  await waitProp(app, "uplink.BlendKeyDialog", "visible", is(false));
-  await waitProp(app, "uplink.JoinStep", "visible", is(true));
-});
-
-test("join: the Blend key signs, the join lands, and Done shows the points account", async (app) => {
-  await click(app, "uplink.onboardingAdvanceButton");
-  await waitProp(app, "uplink.BlendKeyDialog", "opened", is(true));
-  await click(app, "uplink.blendKeyConfirmButton");
   // The registration settles on the backend's next poll (every 5 s).
   await waitProp(app, "uplink.DoneStep", "visible", is(true), { timeout: 20000 });
   await app.expectTexts(["UPLINK POINTS ACCOUNT"]);
@@ -210,10 +197,8 @@ test("claim: cashing out collects, cashes out and shows a signed payout code", a
   await waitProp(app, "uplink.ClaimDialog", "opened", is(true));
   await waitProp(app, "uplink.cashOutButton", "enabled", is(true));
   await click(app, "uplink.cashOutButton");
-  await waitProp(app, "uplink.BlendKeyDialog", "opened", is(true));
-  await waitProp(app, "uplink.blendKeyConfirmButton", "text", is("Sign and cash out"));
-  await click(app, "uplink.blendKeyConfirmButton");
-  // Collect, then cash out: each settles on a poll.
+  // Collect, then cash out (the node app hands over the receipt key), then the node app signs
+  // the code: each send settles on a poll.
   payoutCode = await waitProp(app, "uplink.payoutCode", "text", (t) => t.startsWith("uplink-payout-v2:"), { timeout: 30000 });
   await click(app, "uplink.claimDoneButton");
   await waitProp(app, "uplink.ClaimDialog", "visible", is(false));
@@ -230,8 +215,6 @@ test("cash-outs: a past cash-out's code can be got again, and it's the same code
   await app.expectTexts(["Cash-out 1"]);
   await click(app, "uplink.cashOutCodeButton");
   await waitProp(app, "uplink.CashOutsDialog", "visible", is(false));
-  await waitProp(app, "uplink.BlendKeyDialog", "opened", is(true));
-  await click(app, "uplink.blendKeyConfirmButton");
   await waitProp(app, "uplink.ClaimDialog", "opened", is(true));
   await waitProp(app, "uplink.payoutCode", "text", is(payoutCode), { timeout: 10000 });
   await click(app, "uplink.claimDoneButton");

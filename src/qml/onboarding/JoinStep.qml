@@ -7,8 +7,8 @@ import Logos.UplinkUi 1.0
 
 import "../controls"
 
-// Step 3. Join under an inviter or as a root. The footer's button does the joining, after the
-// Blend key dialog (Main.qml) confirms the keystore.
+// Step 3. Join under an inviter or as a root. The footer's button does the joining; the
+// Blockchain app signs it with the node's key, on the user's approval.
 StepPage {
     id: root
 

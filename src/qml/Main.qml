@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Dialogs
 import QtQuick.Layouts
 
 import Logos.Theme
@@ -22,7 +21,6 @@ Rectangle {
         property bool creatingIdentity: false
         property bool enrolAfterImport: false
         property string pendingInvitation: ""   // carried across account creation
-        property var afterBlendKey: null        // what runs once the Blend key dialog is confirmed
 
         readonly property int welcomePage: 0
         readonly property int onboardingPage: 1
@@ -60,7 +58,7 @@ Rectangle {
             d.continueJoin()
         }
 
-        // The Blend signing key signs inside uplink_module, read from the keystore the user chose.
+        // The Blockchain app signs the enrolment with the node's key (signRequest, below).
         function continueJoin() {
             if (d.pendingInvitation !== "") {
                 d.enrolAfterImport = true
@@ -70,11 +68,23 @@ Rectangle {
             }
         }
 
-        // Every use of the Blend signing key is confirmed first, with the keystore it's read from.
-        function withBlendKey(action, then) {
-            d.afterBlendKey = then
-            blendKeyDialog.action = action
-            blendKeyDialog.open()
+        // What the node's key provides (a signature, the receipt secret) comes from the
+        // Blockchain app, which asks the user: the backend names the request, this raises it,
+        // and the answer goes back with the request's ref. In mock mode nothing is asked here.
+        function raiseSignRequest() {
+            const request = d.backend ? d.backend.signRequest : null
+            if (!request || !request.ref)
+                return
+            if (!d.canRequest()) {
+                d.backend.reportSignFailed(request.ref, "unavailable")
+                return
+            }
+            logos.request(request.intent, request.params, function (res) {
+                if (res.ok)
+                    d.backend.completeSignRequest(request.ref, res.data)
+                else
+                    d.backend.reportSignFailed(request.ref, res.error)
+            })
         }
 
         // A hand-off: the shell opens the app, or offers to install it, and leaves the user there.
@@ -102,6 +112,12 @@ Rectangle {
         function canRequest() {
             return typeof logos !== "undefined" && typeof logos.request === "function"
         }
+    }
+
+    Connections {
+        target: d.backend
+        ignoreUnknownSignals: true
+        function onSignRequestChanged() { d.raiseSignRequest() }
     }
 
     StackLayout {
@@ -142,9 +158,7 @@ Rectangle {
             onExitRequested: pages.currentIndex = d.welcomePage
             onAcceptTermsRequested: d.backend.acceptTerms()
             onAutoClaimToggled: function (on) { d.backend.changeAutoClaim(on) }
-            onJoinRequested: function (invitation) {
-                d.withBlendKey("join", function () { d.startJoin(invitation) })
-            }
+            onJoinRequested: function (invitation) { d.startJoin(invitation) }
             onInvitationEdited: function (text) { d.backend.checkInvitation(text) }
             onOpenBlockchainAppRequested: d.launchApp("blockchain_ui", qsTr("Blockchain"),
                 qsTr("Open it from the Basecamp sidebar and start your node, then come back."))
@@ -174,50 +188,16 @@ Rectangle {
             payoutFormUrl: d.backend ? d.backend.payoutFormUrl : ""
             termsSections: d.backend ? d.backend.termsSections : []
             autoClaim: d.backend ? d.backend.autoClaim : true
-            keystoreIssue: d.backend ? d.backend.keystoreIssue : UplinkUi.KeystoreNotChosen
-            keystorePath: d.backend ? d.backend.keystorePath : ""
             programIssue: d.backend ? d.backend.programIssue : UplinkUi.ProgramUnknown
             programDetail: d.backend ? d.backend.programIssueDetail : ""
-            onCashOutRequested: d.withBlendKey("cashOut", function () { d.backend.cashOutAll() })
+            onCashOutRequested: d.backend.cashOutAll()
             onAutoClaimToggled: function (on) { d.backend.changeAutoClaim(on) }
-            onChooseKeystoreRequested: keystoreDialog.open()
             onPayoutCodeRequested: function (index) {
-                d.withBlendKey("payoutCode", function () {
-                    d.backend.payoutCodeFor(index)
-                    overview.showClaim()
-                })
+                d.backend.payoutCodeFor(index)
+                overview.showClaim()
             }
             onCashOutFinished: d.backend.finishCashOut()
             onLabelEdited: function (node, label) { d.backend.setReferralLabel(node, label) }
-        }
-    }
-
-    // Opens at Basecamp's data folder; Uplink doesn't know where under it the node keeps its
-    // files, so the user finds the node's keystore.yaml there.
-    FileDialog {
-        id: keystoreDialog
-
-        objectName: "uplink.keystoreDialog"
-        title: qsTr("Choose your node’s keystore.yaml")
-        currentFolder: d.backend ? d.backend.keystoreFolder : ""
-        nameFilters: [qsTr("Keystore (*.yaml *.yml)"), qsTr("All files (*)")]
-        onAccepted: d.backend.chooseKeystore(selectedFile.toString())
-    }
-
-    BlendKeyDialog {
-        id: blendKeyDialog
-
-        anchors.centerIn: parent
-        keystoreIssue: d.backend ? d.backend.keystoreIssue : UplinkUi.KeystoreNotChosen
-        keystorePath: d.backend ? d.backend.keystorePath : ""
-        keystoreNode: d.backend ? d.backend.keystoreNode : ""
-        keystoreDetail: d.backend ? d.backend.keystoreIssueDetail : ""
-        onChooseKeystoreRequested: keystoreDialog.open()
-        onConfirmed: {
-            const then = d.afterBlendKey
-            d.afterBlendKey = null
-            if (then)
-                then()
         }
     }
 

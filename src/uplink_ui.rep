@@ -54,25 +54,18 @@ class UplinkUi
     PROP(int programIssue READONLY)
     PROP(QString programIssueDetail READONLY)
 
-    // ---- The node's keystore (its Blend signing key) -----------------------
+    // ---- The node app: what the node's key provides ------------------------
 
-    // The user points Uplink at the node's keystore.yaml; the path (never the key) is kept.
-    // The key is read only for an action the user starts: joining, cashing out, a payout code.
-    // KeystoreWrongNode: the file holds another node's Blend key than the one running.
-    ENUM KeystoreIssue {
-        KeystoreNotChosen  = 0,
-        KeystoreReady      = 1,
-        KeystoreUnreadable = 2,
-        KeystoreWrongNode  = 3
-    }
-
-    PROP(int keystoreIssue READONLY)
-    PROP(QString keystoreIssueDetail READONLY)
-    PROP(QString keystorePath READONLY)
-    PROP(QString keystoreNode READONLY)       // the node the file is for; the identity while nodeId is unknown
-    PROP(QString keystoreFolder READONLY)     // file URL the picker opens at: Basecamp's data folder
-
-    SLOT(void chooseKeystore(QString pathOrUrl))
+    // The node's key stays with the node app (the Blockchain app), which asks the user each
+    // time: joining needs its signature (node.sign_referral_enrolment), cashing out its receipt
+    // secret (node.referral_receipt_secret), a payout code its signature
+    // (node.sign_referral_payout). While Uplink waits for one, signRequest is
+    // {ref, intent, params}: QML raises the intent and passes the answer back with ref
+    // (completeSignRequest, or reportSignFailed); an answer for an older ref is ignored.
+    // {} otherwise, and in mock mode, where a mock node app answers.
+    PROP(QVariantMap signRequest READONLY)
+    SLOT(void completeSignRequest(QString requestRef, QVariantMap answer))
+    SLOT(void reportSignFailed(QString requestRef, QString error))
 
     // ---- Terms: uplink_module ------------------------------------------
 
@@ -93,13 +86,15 @@ class UplinkUi
         NoWalletOpen       = 2
     }
 
+    // AwaitingSignature: the node app is asked to sign the enrolment.
     ENUM EnrolState {
         NoIdentity        = 0,
         IdentityCreated   = 1,
         Invited           = 2,
         Enrolling         = 3,
         Enrolled          = 4,
-        EnrolRejected     = 5
+        EnrolRejected     = 5,
+        AwaitingSignature = 6
     }
 
     ENUM InvitationCheck {
@@ -110,15 +105,18 @@ class UplinkUi
         InvitationOk      = 4
     }
 
-    // Cash out collects what's claimable (one claim per batch of epochs), cashes the whole
-    // balance out with the Blend signing key, then makes the payout code with it.
-    // payoutCodeFor starts at PreparingCode, for a receipt already cashed out.
+    // Cash out collects what's claimable (one claim per batch of epochs), asks the node app for
+    // the receipt secret (AwaitingReceiptKey), cashes the whole balance out with it, then has
+    // the node app sign the payout code (SigningCode). payoutCodeFor starts at PreparingCode,
+    // for a receipt already cashed out.
     ENUM CashOutState {
-        CashOutIdle   = 0,
-        Collecting    = 1,
-        CashingOut    = 2,
-        PreparingCode = 3,
-        CashOutDone   = 4
+        CashOutIdle        = 0,
+        Collecting         = 1,
+        CashingOut         = 2,
+        PreparingCode      = 3,
+        CashOutDone        = 4,
+        AwaitingReceiptKey = 5,
+        SigningCode        = 6
     }
 
     ENUM OperationStatus {
@@ -163,7 +161,7 @@ class UplinkUi
     SLOT(void createIdentity())
     SLOT(void checkInvitation(QString code))
     SLOT(void joinUnder(QString code))
-    // Joins with the chosen keystore: its Blend signing key signs the enrolment inside uplink_module.
+    // Joins: the node app signs the enrolment (AwaitingSignature), then Register is sent.
     SLOT(void enrol())
     SLOT(void cashOutAll())
     SLOT(void payoutCodeFor(int receiptIndex))   // the code for a past receipt

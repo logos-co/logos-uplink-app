@@ -8,7 +8,7 @@ import Logos.UplinkUi 1.0
 import "../controls"
 
 // Step 2. What joining needs running: the node (online, ideally Blend core), the LEZ wallet,
-// and the referral program on this network. The keystore holding the Blend key is chosen at Join, where it's used.
+// and the referral program on this network.
 StepPage {
     id: root
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QVariantMap>
 
 #include "interfaces/NodeService.h"
 
@@ -13,8 +14,12 @@ public:
     static node::Issue issueFromName(const QString& name);
 
     node::Status status() override;
-    // The node's id (its BlendSigning public key); the mock keystore holds its key.
+    // The node's id (its BlendSigning public key).
     static QString nodeId();
+
+    // What the node app answers a referral request ({intent, params}) with, once the user
+    // approves: {signature, public_key} or {receipt_secret, public_key} (MockSigning.h).
+    static QVariantMap answerRequest(const QVariantMap& request);
 
     void setIssue(node::Issue issue) { m_issue = issue; }
 

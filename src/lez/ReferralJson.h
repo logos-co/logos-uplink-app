@@ -176,6 +176,25 @@ inline Result<referral::Terms> terms(const QString& json)
     return Result<referral::Terms>::success(terms);
 }
 
+// payout_message's reply: the text to sign, and the opening's values read from it, so the
+// node app is asked for exactly what the module will check.
+inline Result<referral::PayoutMessage> payoutMessage(const QString& json)
+{
+    const auto r = reply(json);
+    if (!r.ok())
+        return Result<referral::PayoutMessage>::failure(r.error);
+    referral::PayoutMessage m;
+    m.message = r.value.value(QStringLiteral("message")).toString();
+    m.receipt = r.value.value(QStringLiteral("receipt")).toString();
+    m.points = r.value.value(QStringLiteral("points")).toString(QStringLiteral("0"));
+    const QJsonObject opening = QJsonDocument::fromJson(m.message.toUtf8()).object();
+    m.programAccount = opening.value(QStringLiteral("program_account")).toString();
+    m.blindingFactor = opening.value(QStringLiteral("blinding_factor")).toString();
+    if (m.programAccount.isEmpty() || m.blindingFactor.isEmpty())
+        return Result<referral::PayoutMessage>::failure(QStringLiteral("uplink_module: not a payout opening"));
+    return Result<referral::PayoutMessage>::success(m);
+}
+
 inline Result<QList<referral::Receipt>> receipts(const QString& json)
 {
     const auto r = reply(json);

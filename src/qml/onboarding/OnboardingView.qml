@@ -75,12 +75,14 @@ ColumnLayout {
         readonly property bool busy: root.creatingAccount
                                      || root.enrolState === UplinkUi.Invited
                                      || root.enrolState === UplinkUi.Enrolling
+                                     || root.enrolState === UplinkUi.AwaitingSignature
 
         readonly property string phase: {
             if (root.creatingAccount)
                 return qsTr("Creating account…")
             switch (root.enrolState) {
             case UplinkUi.Invited: return qsTr("Importing invitation…")
+            case UplinkUi.AwaitingSignature: return qsTr("Approve in the Blockchain app…")
             case UplinkUi.Enrolling: return qsTr("Joining…")
             }
             return ""

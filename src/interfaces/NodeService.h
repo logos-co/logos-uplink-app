@@ -6,8 +6,8 @@
 #include "interfaces/Result.h"
 
 // The node's status: Basecamp's, through blockchain_module, or for testing a mock or an uplink
-// devnet node (devnet/). Nothing here signs: uplink_module
-// reads the Blend signing key from the keystore the user chose.
+// devnet node (devnet/). Nothing here signs: the node app (the Blockchain app) does, through
+// the node.sign_referral_* intents.
 namespace node {
 
 // Ordered: the first one that applies is the one the user fixes first.

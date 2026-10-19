@@ -44,6 +44,16 @@ struct Receipt {
     QString points = QStringLiteral("0");
 };
 
+// The text the node signs for a payout code, and the opening's values the node app builds it
+// from (the node.sign_referral_payout intent's params).
+struct PayoutMessage {
+    QString message;
+    QString programAccount;           // hex
+    QString blindingFactor;           // hex
+    QString receipt;
+    QString points = QStringLiteral("0");
+};
+
 // The programme's terms, as the module ships them. Accepting names the version and hash.
 struct Terms {
     int version = 0;
@@ -101,22 +111,27 @@ public:
     virtual Result<bool> termsAccepted() = 0;
     virtual Result<bool> acceptTerms(int version, const QString& sha256) = 0;
 
-    // The node a keystore is for, from its public keys only (no secret is read).
-    virtual Result<QString> keystoreNode(const QString& keystorePath) = 0;
-    // Reads `node`'s key from the keystore, signs the enrolment and submits Register.
-    virtual Result<Status> enrol(const QString& reference, const QString& participant,
-                                 const QString& keystorePath, const QString& node) = 0;
+    // What the node's key provides comes from the node app, which holds the key and asks the
+    // user (the node.sign_referral_* and node.referral_receipt_secret intents); the module
+    // checks it before using it, and never sees the key.
+
+    // Submits Register with `node`'s signature over the enrolment (hex).
+    virtual Result<Status> enrolWithSignature(const QString& reference, const QString& participant,
+                                              const QString& node, const QString& signature) = 0;
     // Submits the oldest claimable batch.
     virtual Result<Status> claim(const QString& reference, const QString& participant) = 0;
     // Claims a batch when something is claimable and nothing is pending; the reference it
     // submitted, or "" when it skipped.
     virtual Result<QString> autoClaim(const QString& participant) = 0;
-    // Burns the whole balance into a receipt; the Blend signing key derives the receipt's secret.
-    virtual Result<Status> cashOut(const QString& reference, const QString& participant,
-                                   const QString& keystorePath) = 0;
-    // "" keystore path: the receipts already known, without reading the key.
-    virtual Result<QList<Receipt>> receipts(const QString& participant, const QString& keystorePath) = 0;
-    virtual Result<QString> payoutCode(const QString& participant, quint64 index, const QString& keystorePath) = 0;
+    // Burns the whole balance into a receipt, found again with the node's receipt secret (hex).
+    virtual Result<Status> cashOutWithSecret(const QString& reference, const QString& participant,
+                                             const QString& receiptSecret) = 0;
+    // The receipts already known (no secret needed).
+    virtual Result<QList<Receipt>> receipts(const QString& participant) = 0;
+    // What the node signs for receipt `index`'s payout code, then the code from its signature.
+    virtual Result<PayoutMessage> payoutMessage(const QString& participant, quint64 index) = 0;
+    virtual Result<QString> payoutCodeWithSignature(const QString& participant, quint64 index,
+                                                    const QString& signature) = 0;
     virtual Result<Status> status(const QString& reference) = 0;
 
     // The same four submissions without blocking: each proves and sends a transaction, which
@@ -124,10 +139,10 @@ public:
     // the real service overrides them.
     template <typename T>
     using Done = std::function<void(Result<T>)>;
-    virtual void enrolAsync(const QString& reference, const QString& participant,
-                            const QString& keystorePath, const QString& node, Done<Status> done)
+    virtual void enrolWithSignatureAsync(const QString& reference, const QString& participant,
+                                         const QString& node, const QString& signature, Done<Status> done)
     {
-        done(enrol(reference, participant, keystorePath, node));
+        done(enrolWithSignature(reference, participant, node, signature));
     }
     virtual void claimAsync(const QString& reference, const QString& participant, Done<Status> done)
     {
@@ -137,10 +152,10 @@ public:
     {
         done(autoClaim(participant));
     }
-    virtual void cashOutAsync(const QString& reference, const QString& participant,
-                              const QString& keystorePath, Done<Status> done)
+    virtual void cashOutWithSecretAsync(const QString& reference, const QString& participant,
+                                        const QString& receiptSecret, Done<Status> done)
     {
-        done(cashOut(reference, participant, keystorePath));
+        done(cashOutWithSecret(reference, participant, receiptSecret));
     }
 
     // ---- lez_core: the wallet --------------------------------------------

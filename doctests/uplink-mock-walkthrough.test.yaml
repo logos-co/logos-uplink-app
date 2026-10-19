@@ -13,7 +13,9 @@ intro: |
 
   The app runs on its **mock backend** (`UPLINK_BACKEND=mock`): an in-memory
   referral program in place of `uplink_module`, a node that is Online and a
-  Blend core node, and a keystore for it that Uplink finds by itself. The mock
+  Blend core node, and a mock of the node app that signs for it. In Basecamp the
+  node's key stays with the Blockchain app, which asks you before it signs; the
+  mock node app answers at once, so no signing dialog shows in this run. The mock
   follows the program's rules (see `src/mock/MockReferralService.h`): joining
   seeds three referrals, the oracle publishes an epoch every 40 seconds here,
   points for every epoch wait until they're collected, and your own node sits
@@ -205,30 +207,18 @@ sections:
               action: click_object
               find_by: "objectName"
               find_value: "uplink.onboardingAdvanceButton"
-            - name: "Joining asks to sign with the Blend key"
-              action: wait_for
-              texts: ["Sign with your Blend key", "YOUR NODE’S KEYSTORE"]
-              timeout: 5000
               text: |
-                Every use of the node's Blend signing key is confirmed: what it
-                signs, and the `keystore.yaml` it's read from. Uplink remembers
-                the file's path, never the key, and reads only the BlendSigning
-                key, only for the action you confirm. The mock's node comes with
-                its keystore already chosen; otherwise **Choose keystore.yaml…**
-                opens a file picker at Basecamp's data folder.
-              screenshot: "uplink-join-blend-key.png"
-            - name: "Sign and join"
-              action: click_object
-              find_by: "objectName"
-              find_value: "uplink.blendKeyConfirmButton"
+                Joining is signed with the node's key. Uplink never has it: it asks
+                the Blockchain app, which shows what it would sign and signs only
+                when you approve. Here the mock node app approves at once.
             - name: "The join lands"
               action: wait_for
               texts: ["UPLINK POINTS ACCOUNT"]
               timeout: 30000
               text: |
-                Joining creates a points account in the LEZ wallet, signs the
-                registration with the node's Blend key from its keystore, and submits
-                it. Uplink checks back every five seconds; once the registration
+                Joining creates a points account in the LEZ wallet, has the node
+                app sign the registration, and submits it. Uplink checks back
+                every five seconds; once the registration
                 has settled, this is the last onboarding step. It also asks
                 whether to collect points automatically: on by default, and
                 changeable later in About.
@@ -289,19 +279,16 @@ sections:
               ms: 1000
               text: |
                 Cashing out always takes the whole balance. It collects anything
-                not yet collected, cashes the balance out into a receipt, and
-                signs the receipt's details into a payout code with your node's
-                Blend key, read once from its keystore.
+                not yet collected, cashes the balance out into a receipt that only
+                your node can find again (the Blockchain app hands over its receipt
+                key), and has the Blockchain app sign the receipt's details into a
+                payout code.
               screenshot: "uplink-claim.png"
 
             - name: "Cash out"
               action: click_object
               find_by: "objectName"
               find_value: "uplink.cashOutButton"
-            - name: "Confirm with the Blend key"
-              action: click_object
-              find_by: "objectName"
-              find_value: "uplink.blendKeyConfirmButton"
             - name: "Collect and cash out settle"
               action: wait_for
               texts: ["3 cashed out so far"]
@@ -332,17 +319,13 @@ sections:
               ms: 1000
               text: |
                 If the code wasn't copied — Uplink was closed, or the dialog was
-                dismissed — it can be got again from here. The Blend key signs
-                the same receipt again, so it's the same code.
+                dismissed — it can be got again from here. The node app signs the
+                same receipt again, so it's the same code.
               screenshot: "uplink-cash-outs.png"
             - name: "Get the code again"
               action: click_object
               find_by: "objectName"
               find_value: "uplink.cashOutCodeButton"
-            - name: "Confirm with the Blend key again"
-              action: click_object
-              find_by: "objectName"
-              find_value: "uplink.blendKeyConfirmButton"
             - name: "Let the code show"
               action: sleep
               ms: 2000

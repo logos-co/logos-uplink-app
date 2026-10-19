@@ -13,8 +13,9 @@
 //  - a cash-out takes the whole reward balance and leaves a public receipt;
 //  - a node registers once, under a registered referrer whose invitation was imported
 //    first, and only after the current terms were accepted;
-//  - the Blend signing key comes from a keystore path: one naming "other-node" holds
-//    another node's key, so it's refused (keystore_mismatch).
+//  - what the node's key provides comes from the node app: the mock checks the mock
+//    signatures and receipt secret it hands over (MockSigning.h), so an answer for another
+//    node or other values is refused.
 // Operations settle on the next status(). Registering seeds three children, and the oracle
 // publishes a new epoch every 30 seconds (UPLINK_MOCK_EPOCH_MS); your own node is inactive
 // every fourth epoch.
@@ -37,15 +38,16 @@ public:
     Result<referral::Terms> terms() override;
     Result<bool> termsAccepted() override;
     Result<bool> acceptTerms(int version, const QString& sha256) override;
-    Result<QString> keystoreNode(const QString& keystorePath) override;
-    Result<referral::Status> enrol(const QString& reference, const QString& participant,
-                                   const QString& keystorePath, const QString& node) override;
+    Result<referral::Status> enrolWithSignature(const QString& reference, const QString& participant,
+                                                const QString& node, const QString& signature) override;
     Result<referral::Status> claim(const QString& reference, const QString& participant) override;
     Result<QString> autoClaim(const QString& participant) override;
-    Result<referral::Status> cashOut(const QString& reference, const QString& participant,
-                                     const QString& keystorePath) override;
-    Result<QList<referral::Receipt>> receipts(const QString& participant, const QString& keystorePath) override;
-    Result<QString> payoutCode(const QString& participant, quint64 index, const QString& keystorePath) override;
+    Result<referral::Status> cashOutWithSecret(const QString& reference, const QString& participant,
+                                               const QString& receiptSecret) override;
+    Result<QList<referral::Receipt>> receipts(const QString& participant) override;
+    Result<referral::PayoutMessage> payoutMessage(const QString& participant, quint64 index) override;
+    Result<QString> payoutCodeWithSignature(const QString& participant, quint64 index,
+                                            const QString& signature) override;
     Result<referral::Status> status(const QString& reference) override;
     Result<bool> walletOpen() override;
     Result<QString> resolveLabel(const QString& label) override;
@@ -67,9 +69,6 @@ public:
     static QString inviterNode();
     // An invitation from `node`, in uplink_module's format.
     static QString invitationFor(const QString& node);
-    // The keystore the mock offers by default, and one for another node.
-    static QString keystorePath();
-    static QString otherNodeKeystorePath();
     // The mock network's referral program, selected from the start; and an account holding
     // another version of it. Any other account has nothing deployed.
     static QString deployedProgram();
