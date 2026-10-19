@@ -17,6 +17,7 @@
 
 #include "Points.h"
 #include "blockchain/BlockchainNodeService.h"
+#include "devnet/DevnetNodeService.h"
 #include "lez/LezReferralService.h"
 #include "mock/MockNodeService.h"
 #include "mock/MockReferralService.h"
@@ -139,10 +140,12 @@ UplinkBackend::UplinkBackend(QObject* parent)
     } else
         m_referral = std::make_unique<LezReferralService>(*this);
 
-    // real (default) | mock | mock:<issue>
+    // real (default) | mock | mock:<issue> | devnet:<node API URL> (UPLINK_NODE_ID: its provider_id)
     const QString node = backendFor("UPLINK_NODE");
     if (node.section(':', 0, 0) == QLatin1String("mock"))
         m_node = std::make_unique<MockNodeService>(MockNodeService::issueFromName(node.section(':', 1)));
+    else if (node.startsWith(QLatin1String("devnet:")))
+        m_node = std::make_unique<DevnetNodeService>(QUrl(node.mid(7)), qEnvironmentVariable("UPLINK_NODE_ID"));
     else
         m_node = std::make_unique<BlockchainNodeService>(*this);
 
