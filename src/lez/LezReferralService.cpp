@@ -17,9 +17,9 @@ Result<T> notConnected(const char* module)
     return Result<T>::failure(QStringLiteral("%1 is not connected").arg(QLatin1String(module)));
 }
 
-// Proving takes as long as it takes on commodity hardware: wait indefinitely, as the LEZ Wallet
-// app does for private transfers. uplink_module bounds its own wait on lez_core.
-const Timeout kSendTimeout(-1);
+// Proving a private transaction takes minutes without RISC0_DEV_MODE. There is no "wait forever":
+// <= 0 means the 20 s default. 30 min, uplink_module's own bound on lez_core.
+const Timeout kSendTimeout(30 * 60 * 1000);
 
 // The module's reply read by `parse`, or the call's own error (a timeout, the module gone).
 template <typename T>
