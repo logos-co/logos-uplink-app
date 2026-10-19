@@ -6,6 +6,7 @@
 #include "Points.h"
 #include "mock/MockNodeService.h"
 #include "mock/MockReferralService.h"
+#include "mock/MockSigning.h"
 
 using namespace referral;
 
@@ -27,6 +28,16 @@ void acceptTerms(MockReferralService& s)
     s.acceptTerms(terms.version, terms.sha256);
 }
 
+// What the node app signs for `p`'s enrolment, as Uplink asks for it.
+QString enrolmentSignature(MockReferralService& s, const QString& p, const QString& referrer)
+{
+    return MockNodeService::answerRequest({{"intent", mock_signing::kEnrolIntent},
+                                           {"params", QVariantMap{{"program", s.programAccount().value},
+                                                                  {"participant_account", p},
+                                                                  {"referrer", referrer}}}})
+        .value("signature").toString();
+}
+
 // Registers a participant for the mock node under `referrer` ("" = own tree).
 QString enrol(MockReferralService& s, const QString& referrer = {}, QString* error = nullptr)
 {
@@ -35,7 +46,8 @@ QString enrol(MockReferralService& s, const QString& referrer = {}, QString* err
     if (!referrer.isEmpty())
         s.importInvitation(p, MockReferralService::invitationFor(referrer));
     const QString reference = nextReference();
-    const QString result = settle(s, s.enrol(reference, p, MockReferralService::keystorePath(), MockNodeService::nodeId()), reference);
+    const QString signature = enrolmentSignature(s, p, referrer);
+    const QString result = settle(s, s.enrolWithSignature(reference, p, MockNodeService::nodeId(), signature), reference);
     if (error)
         *error = result;
     return p;
@@ -63,18 +75,23 @@ LOGOS_TEST(joining_needs_the_current_terms_accepted) {
     LOGOS_ASSERT_EQ(terms.sha256.size(), 64);
     LOGOS_ASSERT_FALSE(s.acceptTerms(terms.version, QString(64, '0')).ok());
     const QString p = s.createParticipant("me").value;
-    LOGOS_ASSERT_TRUE(s.enrol("r", p, MockReferralService::keystorePath(), {}).error.contains("terms"));
+    LOGOS_ASSERT_TRUE(s.enrolWithSignature("r", p, MockNodeService::nodeId(), enrolmentSignature(s, p, {}))
+                          .error.contains("terms"));
     LOGOS_ASSERT_TRUE(s.acceptTerms(terms.version, terms.sha256).ok());
     LOGOS_ASSERT_TRUE(s.termsAccepted().value);
 }
 
-LOGOS_TEST(a_keystore_for_another_node_is_refused) {
+LOGOS_TEST(a_signature_by_another_node_or_over_other_values_is_refused) {
     MockReferralService s;
     acceptTerms(s);
     const QString p = s.createParticipant("me").value;
-    LOGOS_ASSERT_NE(s.keystoreNode(MockReferralService::otherNodeKeystorePath()).value, MockNodeService::nodeId());
-    const auto refused = s.enrol("r", p, MockReferralService::otherNodeKeystorePath(), MockNodeService::nodeId());
-    LOGOS_ASSERT_TRUE(refused.error.contains("no key for node"));
+    const QString other = s.createParticipant("other").value;
+    const QVariantMap values{{"program", s.programAccount().value}, {"participant_account", p}, {"referrer", ""}};
+    const QString byAnotherNode = mock_signing::signature(QString(64, 'f'), mock_signing::kEnrolIntent, values);
+    LOGOS_ASSERT_TRUE(s.enrolWithSignature("r", p, MockNodeService::nodeId(), byAnotherNode).error.contains("not the node's"));
+    LOGOS_ASSERT_TRUE(s.enrolWithSignature("r", p, MockNodeService::nodeId(), enrolmentSignature(s, other, {}))
+                          .error.contains("not the node's"));
+    LOGOS_ASSERT_TRUE(s.enrolWithSignature("r", p, MockNodeService::nodeId(), enrolmentSignature(s, p, {})).ok());
 }
 
 LOGOS_TEST(the_referrer_must_be_registered) {
@@ -141,20 +158,38 @@ LOGOS_TEST(auto_claim_claims_when_something_is_claimable_and_waits_while_pending
     LOGOS_ASSERT_EQ(s.participant(p).value.rewardBalance, QString("3"));
 }
 
-LOGOS_TEST(cash_out_takes_the_whole_balance_with_the_nodes_key) {
+LOGOS_TEST(cash_out_takes_the_whole_balance_with_the_nodes_receipt_secret) {
     MockReferralService s;
     const QString p = enrol(s);
     s.advanceEpoch();
     claim(s, p);
-    LOGOS_ASSERT_TRUE(s.cashOut("c0", p, MockReferralService::otherNodeKeystorePath()).error.contains("no key for node"));
-    LOGOS_ASSERT_EQ(settle(s, s.cashOut("c", p, MockReferralService::keystorePath()), "c"), QString());
+    const QString secret = MockNodeService::answerRequest({{"intent", mock_signing::kReceiptSecretIntent}})
+                               .value("receipt_secret").toString();
+    LOGOS_ASSERT_TRUE(s.cashOutWithSecret("c0", p, QString(64, '0')).error.contains("not the node's"));
+    LOGOS_ASSERT_EQ(settle(s, s.cashOutWithSecret("c", p, secret), "c"), QString());
     LOGOS_ASSERT_EQ(s.participant(p).value.rewardBalance, QString("0"));
-    const QList<Receipt> receipts = s.receipts(p, {}).value;
+    const QList<Receipt> receipts = s.receipts(p).value;
     LOGOS_ASSERT_EQ(receipts.size(), 1);
     LOGOS_ASSERT_EQ(receipts.first().points, QString("3"));
-    LOGOS_ASSERT_TRUE(s.payoutCode(p, 0, MockReferralService::keystorePath()).value.startsWith("uplink-payout-v2:"));
-    LOGOS_ASSERT_FALSE(s.payoutCode(p, 1, MockReferralService::keystorePath()).ok());
-    LOGOS_ASSERT_TRUE(s.cashOut("c2", p, MockReferralService::keystorePath()).error.contains("zero"));
+    LOGOS_ASSERT_TRUE(s.cashOutWithSecret("c2", p, secret).error.contains("zero"));
+}
+
+LOGOS_TEST(a_payout_code_needs_the_nodes_signature_over_its_opening) {
+    MockReferralService s;
+    const QString p = enrol(s);
+    s.advanceEpoch();
+    claim(s, p);
+    const QString secret = mock_signing::receiptSecret(MockNodeService::nodeId());
+    settle(s, s.cashOutWithSecret("c", p, secret), "c");
+    const PayoutMessage m = s.payoutMessage(p, 0).value;
+    LOGOS_ASSERT_TRUE(m.message.contains(m.blindingFactor) && m.message.contains(MockNodeService::nodeId()));
+    const QString signature = MockNodeService::answerRequest(
+        {{"intent", mock_signing::kPayoutIntent},
+         {"params", QVariantMap{{"program_account", m.programAccount}, {"blinding_factor", m.blindingFactor}}}})
+        .value("signature").toString();
+    LOGOS_ASSERT_TRUE(s.payoutCodeWithSignature(p, 0, signature).value.startsWith("uplink-payout-v2:"));
+    LOGOS_ASSERT_FALSE(s.payoutCodeWithSignature(p, 0, QString(128, '0')).ok());
+    LOGOS_ASSERT_FALSE(s.payoutMessage(p, 1).ok());
 }
 
 LOGOS_TEST(an_unknown_reference_has_no_status) {

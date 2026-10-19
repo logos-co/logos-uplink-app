@@ -40,6 +40,8 @@ LogosDialog {
         readonly property bool busy: root.cashOutState === UplinkUi.Collecting
                                      || root.cashOutState === UplinkUi.CashingOut
                                      || root.cashOutState === UplinkUi.PreparingCode
+                                     || root.cashOutState === UplinkUi.AwaitingReceiptKey
+                                     || root.cashOutState === UplinkUi.SigningCode
         readonly property bool empty: root.points === "0" && !busy && !done
         readonly property bool ready: !empty && !done
 
@@ -48,6 +50,8 @@ LogosDialog {
             case UplinkUi.Collecting: return qsTr("Collecting…")
             case UplinkUi.CashingOut: return qsTr("Cashing out…")
             case UplinkUi.PreparingCode: return qsTr("Preparing your code…")
+            case UplinkUi.AwaitingReceiptKey: return qsTr("Approve in the Blockchain app…")
+            case UplinkUi.SigningCode: return qsTr("Sign your code in the Blockchain app…")
             }
             return qsTr("Cash out")
         }

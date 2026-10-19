@@ -1,4 +1,5 @@
 #include "mock/MockReferralService.h"
+#include "mock/MockSigning.h"
 
 #include <QCryptographicHash>
 #include <QJsonArray>
@@ -110,8 +111,6 @@ QString MockReferralService::invitationFor(const QString& node)
     return kInvitePrefix + base64url(raw);
 }
 
-QString MockReferralService::keystorePath() { return QStringLiteral("/mock/node/keystore.yaml"); }
-QString MockReferralService::otherNodeKeystorePath() { return QStringLiteral("/mock/other-node/keystore.yaml"); }
 
 QString MockReferralService::nextId(const char* tag)
 {
@@ -265,14 +264,6 @@ Result<bool> MockReferralService::acceptTerms(int version, const QString& sha256
     return Result<bool>::success(true);
 }
 
-Result<QString> MockReferralService::keystoreNode(const QString& keystorePath)
-{
-    if (keystorePath.trimmed().isEmpty())
-        return Result<QString>::failure(QStringLiteral("no keystore given"));
-    return Result<QString>::success(keystorePath.contains(QLatin1String("other-node")) ? hexId("mock-other-node")
-                                                                                      : MockNodeService::nodeId());
-}
-
 bool MockReferralService::hasOpen(const QString& participant) const
 {
     for (const Operation& op : m_operations)
@@ -291,27 +282,28 @@ Result<Status> MockReferralService::record(const QString& reference, Operation o
     return Result<Status>::success(Status::Pending);
 }
 
-Result<Status> MockReferralService::enrol(const QString& reference, const QString& participant,
-                                          const QString& keystorePath, const QString& node)
+// The node app signed the enrolment of `participant` as `node` (mock_signing.h).
+Result<Status> MockReferralService::enrolWithSignature(const QString& reference, const QString& participant,
+                                                       const QString& node, const QString& signature)
 {
     if (!m_accounts.contains(participant))
         return Result<Status>::failure(QStringLiteral("unknown participant"));
     if (!m_termsAccepted)
         return Result<Status>::failure(QStringLiteral("accept the programme's terms first"));
-    const auto keyNode = keystoreNode(keystorePath);
-    if (!keyNode.ok())
-        return Result<Status>::failure(keyNode.error);
-    if (!node.isEmpty() && keyNode.value != node)
-        return Result<Status>::failure(QStringLiteral("this keystore has no key for node %1").arg(node));
     const Account& account = m_accounts[participant];
+    const QVariantMap signedValues{{QStringLiteral("program"), m_program},
+                                   {QStringLiteral("participant_account"), participant},
+                                   {QStringLiteral("referrer"), account.invitedBy}};
+    if (signature != mock_signing::signature(node, mock_signing::kEnrolIntent, signedValues))
+        return Result<Status>::failure(QStringLiteral("the signature is not the node's over this enrolment"));
     if (account.registered)
         return Result<Status>::failure(QStringLiteral("this participant is already registered"));
     registry();
-    if (m_registry.nodes.contains(keyNode.value))
+    if (m_registry.nodes.contains(node))
         return Result<Status>::failure(QStringLiteral("this node is already registered"));
     if (!account.invitedBy.isEmpty() && !m_registry.nodes.contains(account.invitedBy))
         return Result<Status>::failure(QStringLiteral("the referrer is not registered"));
-    return record(reference, {Kind::Register, participant, keyNode.value});
+    return record(reference, {Kind::Register, participant, node});
 }
 
 Result<Status> MockReferralService::claim(const QString& reference, const QString& participant)
@@ -334,40 +326,67 @@ Result<QString> MockReferralService::autoClaim(const QString& participant)
     return recorded.ok() ? Result<QString>::success(reference) : Result<QString>::failure(recorded.error);
 }
 
-Result<Status> MockReferralService::cashOut(const QString& reference, const QString& participant,
-                                            const QString& keystorePath)
+Result<Status> MockReferralService::cashOutWithSecret(const QString& reference, const QString& participant,
+                                                      const QString& receiptSecret)
 {
     const Account account = m_accounts.value(participant);
     if (!account.registered)
         return notRegistered<Status>();
-    const auto keyNode = keystoreNode(keystorePath);
-    if (!keyNode.ok())
-        return Result<Status>::failure(keyNode.error);
-    if (keyNode.value != account.state.node)
-        return Result<Status>::failure(QStringLiteral("this keystore has no key for node %1").arg(account.state.node));
+    if (receiptSecret != mock_signing::receiptSecret(account.state.node))
+        return Result<Status>::failure(QStringLiteral("this receipt secret is not the node's"));
     if (!m_operations.contains(reference) && account.state.rewardBalance == QLatin1String("0"))
         return Result<Status>::failure(QStringLiteral("the reward balance is zero"));
     return record(reference, {Kind::CashOut, participant, {}});
 }
 
-Result<QList<Receipt>> MockReferralService::receipts(const QString& participant, const QString&)
+Result<QList<Receipt>> MockReferralService::receipts(const QString& participant)
 {
     return Result<QList<Receipt>>::success(m_accounts.value(participant).receipts);
 }
 
-Result<QString> MockReferralService::payoutCode(const QString& participant, quint64 index, const QString& keystorePath)
+namespace {
+
+// Receipt `index`'s opening: what the node signs for its payout code, as uplink_module builds it.
+QString openingOf(const QString& participant, quint64 index, const QString& node, const QString& program)
+{
+    const QJsonObject opening{
+        {QStringLiteral("blinding_factor"), hexId("blinding:" + participant.toUtf8() + QByteArray::number(index))},
+        {QStringLiteral("node"), node},
+        {QStringLiteral("program_account"), program},
+    };
+    return QString::fromUtf8(QJsonDocument(opening).toJson(QJsonDocument::Compact));
+}
+
+} // namespace
+
+Result<PayoutMessage> MockReferralService::payoutMessage(const QString& participant, quint64 index)
 {
     const Account account = m_accounts.value(participant);
     if (index >= quint64(account.receipts.size()))
-        return Result<QString>::failure(QStringLiteral("no receipt with this index"));
-    if (keystoreNode(keystorePath).value != account.state.node)
-        return Result<QString>::failure(QStringLiteral("this keystore has no key for node %1").arg(account.state.node));
-    const QJsonObject opening{
-        {QStringLiteral("blinding_factor"), hexId("blinding:" + participant.toUtf8() + QByteArray::number(index))},
-        {QStringLiteral("node"), account.state.node},
-        {QStringLiteral("program_account"), m_program},
-        {QStringLiteral("signature"), QString::fromLatin1(QCryptographicHash::hash(participant.toUtf8(), QCryptographicHash::Sha512).toHex())},
-    };
+        return Result<PayoutMessage>::failure(QStringLiteral("no receipt with this index"));
+    PayoutMessage m;
+    m.message = openingOf(participant, index, account.state.node, m_program);
+    const QJsonObject opening = QJsonDocument::fromJson(m.message.toUtf8()).object();
+    m.programAccount = opening.value(QStringLiteral("program_account")).toString();
+    m.blindingFactor = opening.value(QStringLiteral("blinding_factor")).toString();
+    m.receipt = account.receipts.at(int(index)).account;
+    m.points = account.receipts.at(int(index)).points;
+    return Result<PayoutMessage>::success(m);
+}
+
+Result<QString> MockReferralService::payoutCodeWithSignature(const QString& participant, quint64 index,
+                                                             const QString& signature)
+{
+    const auto m = payoutMessage(participant, index);
+    if (!m.ok())
+        return Result<QString>::failure(m.error);
+    const QString node = m_accounts.value(participant).state.node;
+    const QVariantMap signedValues{{QStringLiteral("program_account"), m.value.programAccount},
+                                   {QStringLiteral("blinding_factor"), m.value.blindingFactor}};
+    if (signature != mock_signing::signature(node, mock_signing::kPayoutIntent, signedValues))
+        return Result<QString>::failure(QStringLiteral("the signature is not the node's over this payout"));
+    QJsonObject opening = QJsonDocument::fromJson(m.value.message.toUtf8()).object();
+    opening.insert(QStringLiteral("signature"), signature);
     return Result<QString>::success(kPayoutPrefix + base64url(QJsonDocument(opening).toJson(QJsonDocument::Compact)));
 }
 

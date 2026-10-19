@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QSet>
 #include <QTimer>
+#include <functional>
 #include <memory>
 
 #include "logos_ui_plugin_context.h"
@@ -20,9 +21,11 @@ public:
 
     // For tests: services handed in rather than picked by UPLINK_BACKEND, and Uplink's
     // own file kept in `dataDir` (macOS ignores XDG_DATA_HOME).
+    // `nodeApp` answers the node app's requests in place of the real one (mock mode).
+    using NodeApp = std::function<QVariantMap(const QVariantMap& request)>;
     UplinkBackend(std::unique_ptr<referral::ReferralService> referral,
                   std::unique_ptr<node::NodeService> node, const QString& dataDir,
-                  QObject* parent = nullptr);
+                  NodeApp nodeApp = {}, QObject* parent = nullptr);
     ~UplinkBackend() override;
 
     // The deployment the release names in metadata.json (read at startup); tests set it here.
@@ -32,7 +35,8 @@ public:
 
 public slots:
     void refresh() override;
-    void chooseKeystore(QString pathOrUrl) override;
+    void completeSignRequest(QString requestRef, QVariantMap answer) override;
+    void reportSignFailed(QString requestRef, QString error) override;
     void acceptTerms() override;
     void changeAutoClaim(bool on) override;
     void createIdentity() override;
@@ -57,7 +61,6 @@ private:
     void checkProgram();
     void refreshWallet();
     void refreshTerms();
-    void checkKeystore();
     void showIdentity();
     void forgetIdentity();
     void syncWallet();
@@ -69,6 +72,8 @@ private:
     void preparePayoutCode(quint64 receiptIndex);
     void prepareNewReceiptCode();
     void failCashOut(const QString& error);
+    void askNodeApp(const QString& intent, const QVariantMap& params);
+    void finishEnrol(const QString& node, const QString& signature);
     void syncNextChunk();
     void refreshReferral();
     void autoClaimIfDue();
@@ -89,7 +94,10 @@ private:
     QMap<QString, QString> m_labels;                 // node -> label
     QString m_labelsOwner;                           // participant whose labels are loaded
     QString m_dataDir;                               // "" = the standard location
-    QString m_checkedKeystoreFor;                    // "<nodeId>|<path>" last checked
+    NodeApp m_nodeApp;                               // mock mode's; empty: the real one, through QML
+    QVariantMap m_request;                           // {ref, intent, params} the node app is asked
+    int m_enrolBefore = 0;                           // the enrol state to go back to if it says no
+    quint64 m_payoutIndex = 0;                       // the receipt whose code is being signed
     QString m_releaseChain;                          // "" = any chain
     QString m_releaseProgram;                        // "" = the module's own choice
     bool m_deploymentApplied = false;

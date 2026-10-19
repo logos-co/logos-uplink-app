@@ -1,4 +1,5 @@
 #include "mock/MockNodeService.h"
+#include "mock/MockSigning.h"
 
 #include <QCryptographicHash>
 
@@ -52,3 +53,13 @@ node::Status MockNodeService::status()
 }
 
 QString MockNodeService::nodeId() { return kNodeId; }
+
+QVariantMap MockNodeService::answerRequest(const QVariantMap& request)
+{
+    const QString intent = request.value(QStringLiteral("intent")).toString();
+    if (intent == mock_signing::kReceiptSecretIntent)
+        return {{QStringLiteral("receipt_secret"), mock_signing::receiptSecret(kNodeId)},
+                {QStringLiteral("public_key"), kNodeId}};
+    return {{QStringLiteral("signature"), mock_signing::signature(kNodeId, intent, request.value(QStringLiteral("params")).toMap())},
+            {QStringLiteral("public_key"), kNodeId}};
+}
