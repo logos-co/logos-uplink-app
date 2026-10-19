@@ -7,7 +7,8 @@ class UplinkUi
 
     PROP(QString lastError READONLY)
 
-    // Re-reads the node, settles pending operations, re-reads the referral state.
+    // Re-reads the node, settles pending operations, re-reads the referral state, and
+    // claims when auto-claim is on.
     SLOT(void refresh())
 
     // ---- Node: blockchain_module -----------------------------------------
@@ -34,7 +35,56 @@ class UplinkUi
     PROP(QString nodeId READONLY)             // BlendSigning provider_id; "" until known
     PROP(QString chainId READONLY)
 
-    // ---- Referral programme: lez_core ------------------------------------
+    // ---- Deployment: the referral program this release uses -------------
+
+    // The release's program account (metadata.json's referral_program, read at startup) is
+    // selected in uplink_module; ProgramUnknown until checked, which needs the LEZ wallet
+    // open. ProgramOtherNetwork: the node is on another chain than the release's.
+    // ProgramNotConfigured: neither the release nor the module names a deployment.
+    // ProgramNotDeployed / ProgramMismatch: nothing, or another version, at that account.
+    ENUM ProgramIssue {
+        ProgramUnknown       = 0,
+        ProgramReady         = 1,
+        ProgramNotConfigured = 2,
+        ProgramOtherNetwork  = 3,
+        ProgramNotDeployed   = 4,
+        ProgramMismatch      = 5
+    }
+
+    PROP(int programIssue READONLY)
+    PROP(QString programIssueDetail READONLY)
+
+    // ---- The node's keystore (its Blend signing key) -----------------------
+
+    // The user points Uplink at the node's keystore.yaml; the path (never the key) is kept.
+    // The key is read only for an action the user starts: joining, cashing out, a payout code.
+    // KeystoreWrongNode: the file holds another node's Blend key than the one running.
+    ENUM KeystoreIssue {
+        KeystoreNotChosen  = 0,
+        KeystoreReady      = 1,
+        KeystoreUnreadable = 2,
+        KeystoreWrongNode  = 3
+    }
+
+    PROP(int keystoreIssue READONLY)
+    PROP(QString keystoreIssueDetail READONLY)
+    PROP(QString keystorePath READONLY)
+    PROP(QString keystoreNode READONLY)       // the node the file is for; the identity while nodeId is unknown
+    PROP(QString keystoreFolder READONLY)     // file URL the picker opens at: Basecamp's data folder
+
+    SLOT(void chooseKeystore(QString pathOrUrl))
+
+    // ---- Terms: uplink_module ------------------------------------------
+
+    PROP(int termsVersion READONLY)
+    PROP(QString termsSha256 READONLY)
+    PROP(QString termsLastUpdated READONLY)
+    PROP(QVariantList termsSections READONLY) // [{title, items: [{t, h?, i?}]}]
+    PROP(bool termsAccepted READONLY)
+
+    SLOT(void acceptTerms())
+
+    // ---- Referral programme: uplink_module + lez_core ------------------
 
     // NoWalletOpen: QML sends basecamp.apps.launch {app: "lez_wallet_ui"}; the shell offers an install if it's missing.
     ENUM WalletIssue {
@@ -47,10 +97,9 @@ class UplinkUi
         NoIdentity        = 0,
         IdentityCreated   = 1,
         Invited           = 2,
-        AwaitingSignature = 3,
-        Enrolling         = 4,
-        Enrolled          = 5,
-        EnrolRejected     = 6
+        Enrolling         = 3,
+        Enrolled          = 4,
+        EnrolRejected     = 5
     }
 
     ENUM InvitationCheck {
@@ -61,17 +110,15 @@ class UplinkUi
         InvitationOk      = 4
     }
 
-    // Cash out runs Collect (if anything is claimable), then CashOut, reads the receipt's
-    // opening, and has the node sign it into the payout code. SigningCode is the node
-    // app's turn: QML requests signRequest.intent, then completes or reports.
+    // Cash out collects what's claimable (one claim per batch of epochs), cashes the whole
+    // balance out with the Blend signing key, then makes the payout code with it.
     // payoutCodeFor starts at PreparingCode, for a receipt already cashed out.
     ENUM CashOutState {
         CashOutIdle   = 0,
         Collecting    = 1,
         CashingOut    = 2,
         PreparingCode = 3,
-        SigningCode   = 4,
-        CashOutDone   = 5
+        CashOutDone   = 4
     }
 
     ENUM OperationStatus {
@@ -93,11 +140,10 @@ class UplinkUi
     PROP(QString invitation READONLY)         // your shareable invitation code; "" until enrolled
     PROP(int invitationCheck READONLY)        // checkInvitation's verdict on the pasted code
     PROP(QString invitationInviter READONLY)  // the inviter's node in the pasted code
-    PROP(QVariantMap signRequest READONLY)    // {ref, intent, params} for the node app while AwaitingSignature or SigningCode
     PROP(int epoch READONLY)
     PROP(int activeCount READONLY)
     PROP(QVariantList myActivity READONLY)    // last 16 published epochs, oldest first: 1 active, 0 not, -1 unknown
-    PROP(bool nodeActive READONLY)            // your own node is in this epoch's active set; Collect needs it
+    PROP(bool nodeActive READONLY)            // your own node is in this epoch's active set; only such epochs pay
     PROP(QVariantList referrals READONLY)     // [{node, label, activeThisEpoch, lastPaidEpoch, pending, activity}]; activity as myActivity
     PROP(QString claimablePoints READONLY)
     PROP(QString rewardBalance READONLY)      // collected, not yet cashed out
@@ -110,18 +156,17 @@ class UplinkUi
     PROP(QString payoutFormUrl READONLY)      // where the user pastes the code
     PROP(QVariantList operations READONLY)    // [{ref, kind, status}]
 
+    // Claims on each refresh whenever something is claimable. On unless the user turns it off.
+    PROP(bool autoClaim READONLY)
+    SLOT(void changeAutoClaim(bool on))
+
     SLOT(void createIdentity())
     SLOT(void checkInvitation(QString code))
     SLOT(void joinUnder(QString code))
-    // prepareEnroll -> QML requests signRequest.intent -> completeEnroll or reportSignFailed.
-    // The answers carry back the signRequest's ref; one for an earlier request is ignored.
-    SLOT(void prepareEnroll())
-    SLOT(void completeEnroll(QString requestRef, QString signatureHex, QString publicKeyHex))
-    SLOT(void reportSignFailed(QString requestRef, QString error))
+    // Joins with the chosen keystore: its Blend signing key signs the enrolment inside uplink_module.
+    SLOT(void enrol())
     SLOT(void cashOutAll())
     SLOT(void payoutCodeFor(int receiptIndex))   // the code for a past receipt
-    SLOT(void completePayoutSignature(QString requestRef, QString signatureHex, QString publicKeyHex))
-    SLOT(void reportPayoutSignFailed(QString requestRef, QString error))   // stays SigningCode; asking again retries
     SLOT(void finishCashOut())               // back to idle once the code is copied
     SLOT(void setReferralLabel(QString node, QString label))
 }

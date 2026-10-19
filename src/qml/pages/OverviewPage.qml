@@ -32,12 +32,25 @@ Item {
     property string payoutPoints: ""
     property string error: ""
     property string payoutFormUrl: ""
+    property var termsSections: []
+    property bool autoClaim: true
+    property int keystoreIssue: UplinkUi.KeystoreNotChosen
+    property string keystorePath: ""
+    property int programIssue: UplinkUi.ProgramUnknown
+    property string programDetail: ""
 
+    // Both use the Blend signing key, so Main.qml confirms the keystore first.
     signal cashOutRequested()
-    signal signAgainRequested()
     signal payoutCodeRequested(int index)
+    signal autoClaimToggled(bool on)
+    signal chooseKeystoreRequested()
     signal cashOutFinished()
     signal labelEdited(string node, string label)
+
+    // The claim dialog, where a payout code got again appears.
+    function showClaim() {
+        claimDialog.open()
+    }
 
     onMyActivityChanged: d.rebuild()
     onReferralsChanged: d.rebuild()
@@ -77,7 +90,8 @@ Item {
                 node: root.nodeId, mine: true, name: qsTr("My node"), labelled: true,
                 sub: shortId(root.nodeId), marks: (root.myActivity || []).join(","),
                 statusText: me.text, statusColor: me.color,
-                note: root.nodeActive ? qsTr("can collect") : qsTr("can’t collect yet"),
+                // Only epochs your own node was active in pay for your referrals.
+                note: root.nodeActive ? qsTr("earning this epoch") : qsTr("not earning this epoch"),
             })
             for (const r of (root.referrals || [])) {
                 const st = status(r.activity)
@@ -225,6 +239,12 @@ Item {
             ColumnLayout {
                 spacing: Theme.spacing.large
 
+                ProgramNotice {
+                    Layout.fillWidth: true
+                    issue: root.programIssue
+                    detail: root.programDetail
+                }
+
                 LogosNotice {
                     objectName: "uplink.nodeDownBanner"
                     Layout.fillWidth: true
@@ -303,7 +323,12 @@ Item {
 
             AboutView {
                 referrerNode: root.referrerNode
+                autoClaim: root.autoClaim
+                keystoreIssue: root.keystoreIssue
+                keystorePath: root.keystorePath
                 onReadTermsRequested: termsDialog.open()
+                onAutoClaimToggled: function (on) { root.autoClaimToggled(on) }
+                onChooseKeystoreRequested: root.chooseKeystoreRequested()
             }
         }
     }
@@ -415,6 +440,7 @@ Item {
         id: termsDialog
 
         anchors.centerIn: parent
+        sections: root.termsSections
     }
 
     InviteDialog {
@@ -430,14 +456,12 @@ Item {
         anchors.centerIn: parent
         points: root.points
         referralCount: root.referrals.length
-        nodeActive: root.nodeActive
         cashOutState: root.cashOutState
         payoutCode: root.payoutCode
         payoutPoints: root.payoutPoints
         error: root.error
         formUrl: root.payoutFormUrl
         onCashOutRequested: root.cashOutRequested()
-        onSignAgainRequested: root.signAgainRequested()
         onInviteRequested: inviteDialog.open()
         onFinished: root.cashOutFinished()
     }
@@ -447,10 +471,7 @@ Item {
 
         anchors.centerIn: parent
         receipts: root.receipts
-        onCodeRequested: function (index) {
-            root.payoutCodeRequested(index)
-            claimDialog.open()
-        }
+        onCodeRequested: function (index) { root.payoutCodeRequested(index) }
     }
 
     // ---- Label dialog -------------------------------------------------------------

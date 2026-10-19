@@ -13,6 +13,8 @@ LogosDialog {
 
     objectName: "uplink.TermsDialog"
 
+    property var sections: []
+
     width: parent ? Math.min(640, parent.width - 2 * Theme.spacing.xxlarge) : 640
     height: parent ? Math.min(680, parent.height - 2 * Theme.spacing.xxlarge) : 680
     dim: true
@@ -25,6 +27,8 @@ LogosDialog {
 
     contentItem: TermsView {
         id: terms
+
+        sections: root.sections
     }
 
     rightActions: [

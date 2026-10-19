@@ -5,9 +5,8 @@
 
 #include "interfaces/Result.h"
 
-// The local node's status, through blockchain_module. Signing with the node key is
-// not here: the node app does it, on the user's approval, via the
-// node.sign_referral_* intents (see uplink_ui.rep).
+// The local node's status, through blockchain_module. Nothing here signs: uplink_module
+// reads the Blend signing key from the keystore the user chose.
 namespace node {
 
 // Ordered: the first one that applies is the one the user fixes first.

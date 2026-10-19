@@ -3,6 +3,7 @@ import QtQuick.Layouts
 
 import Logos.Theme
 import Logos.Controls
+import Logos.UplinkUi 1.0
 
 import "../controls"
 
@@ -12,6 +13,8 @@ Item {
     objectName: "uplink.WelcomePage"
 
     property string network: ""   // the node's chain ID; hidden until the node reports one
+    property int programIssue: UplinkUi.ProgramUnknown
+    property string programDetail: ""
 
     signal joinRequested()
 
@@ -43,11 +46,20 @@ Item {
             color: Theme.palette.textSecondary
         }
 
+        ProgramNotice {
+            id: programNotice
+
+            Layout.fillWidth: true
+            issue: root.programIssue
+            detail: root.programDetail
+        }
+
         LogosButton {
             objectName: "uplink.joinButton"
             Layout.alignment: Qt.AlignHCenter
             variant: LogosButton.Variant.Primary
             font.pixelSize: Theme.typography.primaryText
+            enabled: !programNotice.blocking
             text: qsTr("Join Uplink")
             onClicked: root.joinRequested()
         }
