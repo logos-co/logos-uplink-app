@@ -34,9 +34,10 @@ earn points while the nodes they brought in do real work on the network.
 | Piece | Provides | Status |
 |---|---|---|
 | [Uplink referral program](https://github.com/logos-blockchain/uplink) | Registration, points, claims, cash-out | Merged; needs deploying per network, with its oracle |
-| `uplink_module` | The programme for Basecamp: terms, enrolment (signed with the node's Blend key, read from its keystore), claims, cash-out, payout codes | [logos-blockchain/uplink-module](https://github.com/logos-blockchain/uplink-module) |
+| `uplink_module` | The programme for Basecamp: terms, enrolment, claims, cash-out, payout codes. It never sees the node's key: it takes signatures and the receipt secret, and checks them | [logos-blockchain/uplink-module](https://github.com/logos-blockchain/uplink-module) |
 | `lez_core` ([logos-execution-zone-module](https://github.com/logos-blockchain/logos-execution-zone-module)) | The wallet: keys, sync, private transactions | Needs [#69](https://github.com/logos-blockchain/logos-execution-zone-module/pull/69) (`send_generic_private_transaction_with_accounts`) |
-| `blockchain_module` ([logos-blockchain-module](https://github.com/logos-blockchain/logos-blockchain-module)) | Node status, Blend core role | Status available; the node's `provider_id` waits on [#108](https://github.com/logos-blockchain/logos-blockchain-module/issues/108). Until then the keystore the user chooses names the node |
+| `blockchain_module` ([logos-blockchain-module](https://github.com/logos-blockchain/logos-blockchain-module)) | Node status, Blend core role | Status available; the node's `provider_id` waits on [#108](https://github.com/logos-blockchain/logos-blockchain-module/issues/108). Until then the Blockchain app's answers name the node |
+| Blockchain app ([logos-blockchain-ui](https://github.com/logos-blockchain/logos-blockchain-ui)) | Holds the node's key: signs the enrolment and payout codes, hands over the receipt secret, each on the user's approval | The `node.sign_referral_*` and `node.referral_receipt_secret` intents; not merged yet |
 
 ## Development
 
@@ -96,25 +97,30 @@ UPLINK_NODE=mock:not_core nix run .    # mock node that is not a core node
 
 The mock referral programme follows the program's rules: points accrue (a claim pays every epoch a
 referral was active, and your own node was too, since it was last settled), cash-out takes the whole
-balance, and a keystore for another node is refused. Its node's keystore is chosen for you
-(`MockReferralService::keystorePath()`; one with `other-node` in the path holds another node's key).
+balance, and a signature or receipt secret that isn't the node's is refused. With the mock node,
+a mock node app answers the signing requests at once (`MockNodeService::answerRequest`), so mock
+runs need no Blockchain app.
 
 It settles operations on the next poll (5 s), seeds three children when you
 register, and publishes a new epoch every 30 s (`UPLINK_MOCK_EPOCH_MS` changes that). The only
 registered node at start is `MockReferralService::inviterNode()`.
 
-### The Blend key and auto-claim
+### The node's key and auto-claim
 
-Joining, cashing out and payout codes are signed with the node's Blend signing key (`BlendSigning`
-in its `keystore.yaml`; the UI calls it the Blend key, not the "node key", which the Blockchain app
-uses for the network identity). Each of them first opens a dialog saying what the key signs and
-which `keystore.yaml` it's read from, and runs
-only once the user confirms; the first time, the user picks the file there (the picker opens at
-Basecamp's data folder; About → Settings changes it too). Uplink keeps the path, never the key,
-and uplink_module reads only that key, only for the action the user confirmed.
-A keystore for another node than the one running is refused. Auto-claim (on by default, chosen on the
-last onboarding step, changeable in About → Settings) collects whenever something is claimable;
-it needs no key. Both settings live in Uplink's `uplink.ini`.
+Joining, cashing out and payout codes need the node's Blend signing key, and Uplink never has it:
+it stays with the Blockchain app, which asks the user each time, showing what it would sign. Uplink
+asks through Basecamp's intents, and passes the answer to uplink_module, which checks it:
+
+| Step | Intent | The Blockchain app answers | Uplink then |
+|---|---|---|---|
+| Join | `node.sign_referral_enrolment` (`program`, `participant_account`, `referrer`) | the node's signature over the enrolment | `enrol_with_signature` |
+| Cash out | `node.referral_receipt_secret` | the node's receipt secret | `cash_out_with_secret` |
+| Payout code | `node.sign_referral_payout` (`program_account`, `blinding_factor`) | the node's signature over the receipt's opening | `payout_code_with_signature` |
+
+The Blockchain app fills in its own node and names it in its answer; an answer for another node
+than the one running is refused, and declining puts the step back where it was. Auto-claim (on by
+default, chosen on the last onboarding step, changeable in About → Settings) collects whenever
+something is claimable; it needs no key. It lives in Uplink's `uplink.ini`.
 
 ### Invitation codes
 
@@ -133,7 +139,7 @@ Three layers, all on the mock backend:
 
 - **Unit and backend tests** (`tests/*.cpp`, `checks.<system>.unit-tests`). The mock's rules,
   points arithmetic, uplink_module's replies as the real service reads them; and `UplinkBackend`
-  itself, driven as QML drives it: terms, the keystore, joining, auto-claim, the wallet closing or
+  itself, driven as QML drives it: terms, joining, the node app's answers (and refusals), auto-claim, the wallet closing or
   switching, cashing out, getting a past code again. The real services are stand-ins there
   (`tests/fakes/`).
 - **UI tests** (`tests/*.mjs`, `checks.<system>.integration-test`). The standalone app, headless,
