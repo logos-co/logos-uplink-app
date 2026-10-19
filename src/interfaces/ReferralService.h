@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QList>
+#include <functional>
 #include <QMap>
 #include <QString>
 #include <QStringList>
@@ -115,6 +116,30 @@ public:
     virtual Result<QList<Receipt>> receipts(const QString& participant, const QString& keystorePath) = 0;
     virtual Result<QString> payoutCode(const QString& participant, quint64 index, const QString& keystorePath) = 0;
     virtual Result<Status> status(const QString& reference) = 0;
+
+    // The same four submissions without blocking: each proves and sends a transaction, which
+    // takes minutes without RISC0_DEV_MODE. By default they answer at once from the calls above;
+    // the real service overrides them.
+    template <typename T>
+    using Done = std::function<void(Result<T>)>;
+    virtual void enrolAsync(const QString& reference, const QString& participant,
+                            const QString& keystorePath, const QString& node, Done<Status> done)
+    {
+        done(enrol(reference, participant, keystorePath, node));
+    }
+    virtual void claimAsync(const QString& reference, const QString& participant, Done<Status> done)
+    {
+        done(claim(reference, participant));
+    }
+    virtual void autoClaimAsync(const QString& participant, Done<QString> done)
+    {
+        done(autoClaim(participant));
+    }
+    virtual void cashOutAsync(const QString& reference, const QString& participant,
+                              const QString& keystorePath, Done<Status> done)
+    {
+        done(cashOut(reference, participant, keystorePath));
+    }
 
     // ---- lez_core: the wallet --------------------------------------------
     // The wallet itself belongs to the LEZ Wallet app; Uplink only checks it is open,
