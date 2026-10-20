@@ -30,6 +30,8 @@ ColumnLayout {
     property bool autoClaim: true
     property int programIssue: UplinkUi.ProgramUnknown
     property string programDetail: ""
+    property bool nodeRegistered: false
+    property bool findingAccount: false
 
     signal exitRequested()
     signal acceptTermsRequested()
@@ -57,7 +59,8 @@ ColumnLayout {
     onErrorChanged: if (root.error !== "") d.awaitingTerms = false
 
     onEnrolStateChanged: {
-        if (root.enrolState === UplinkUi.Enrolled && d.step === "join")
+        // Joined now, or found already joined (a restored wallet): either way, done.
+        if (root.enrolState === UplinkUi.Enrolled && d.step !== "done")
             d.stepIndex = d.steps.indexOf("done")
     }
 
@@ -255,6 +258,8 @@ ColumnLayout {
             chainHeight: root.chainHeight
             programIssue: root.programIssue
             programDetail: root.programDetail
+            joinedElsewhere: root.nodeRegistered && root.enrolState !== UplinkUi.Enrolled
+            findingAccount: root.findingAccount
             onOpenBlockchainAppRequested: root.openBlockchainAppRequested()
             onOpenLezWalletRequested: root.openLezWalletRequested()
         }

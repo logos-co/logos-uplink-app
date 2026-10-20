@@ -261,6 +261,29 @@ Result<QString> LezReferralService::resolveLabel(const QString& label)
     return Result<QString>::success(resolved.section('/', 1));
 }
 
+Result<QStringList> LezReferralService::privateAccounts()
+{
+    if (!m_context.isContextReady())
+        return notConnected<QStringList>("lez_core");
+    QStringList accounts;
+    for (const QVariant& v : m_context.modules().lez_core.list_accounts()) {
+        const QVariantMap entry = v.toMap();
+        if (!entry.value(QStringLiteral("is_public"), true).toBool())
+            accounts << entry.value(QStringLiteral("account_id")).toString();
+    }
+    return Result<QStringList>::success(accounts);
+}
+
+// add_label answers success even when the label is taken, so resolve_label says whether it took.
+Result<bool> LezReferralService::labelAccount(const QString& label, const QString& account)
+{
+    if (!m_context.isContextReady())
+        return notConnected<bool>("lez_core");
+    m_context.modules().lez_core.add_label(label, account, true);
+    const QString labelled = m_context.modules().lez_core.resolve_label(label).section('/', 1);
+    return Result<bool>::success(labelled.compare(account, Qt::CaseInsensitive) == 0);
+}
+
 Result<QString> LezReferralService::accountAddress(const QString& account)
 {
     if (!m_context.isContextReady())

@@ -154,6 +154,8 @@ Rectangle {
             autoClaim: d.backend ? d.backend.autoClaim : true
             programIssue: d.backend ? d.backend.programIssue : UplinkUi.ProgramUnknown
             programDetail: d.backend ? d.backend.programIssueDetail : ""
+            nodeRegistered: d.backend ? d.backend.nodeRegistered : false
+            findingAccount: d.backend ? d.backend.findingAccount : false
 
             onExitRequested: pages.currentIndex = d.welcomePage
             onAcceptTermsRequested: d.backend.acceptTerms()
