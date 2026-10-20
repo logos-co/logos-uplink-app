@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QMap>
 #include <QObject>
 #include <QSet>
@@ -74,6 +75,7 @@ private:
     void failCashOut(const QString& error);
     void askNodeApp(const QString& intent, const QVariantMap& params);
     void finishEnrol(const QString& node, const QString& signature);
+    void giveUpEnrol();
     void syncNextChunk();
     void refreshReferral();
     void autoClaimIfDue();
@@ -101,6 +103,8 @@ private:
     QString m_releaseChain;                          // "" = any chain
     QString m_releaseProgram;                        // "" = the module's own choice
     bool m_deploymentApplied = false;
+    QElapsedTimer m_enrolClock;                      // since the registration started being prepared
+    int m_enrolAttempt = 0;                          // bumped when one is given up, so its answer is ignored
     bool m_sending = false;                          // a transaction is being proved and sent
     QTimer m_poll;
     bool m_syncing = false;

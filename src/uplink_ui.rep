@@ -86,7 +86,8 @@ class UplinkUi
         NoWalletOpen       = 2
     }
 
-    // AwaitingSignature: the node app is asked to sign the enrolment.
+    // Joining: AwaitingSignature (the node app is asked to sign), Enrolling (the registration
+    // is proved and sent: minutes without RISC0_DEV_MODE), EnrolSent (waiting for it to settle).
     ENUM EnrolState {
         NoIdentity        = 0,
         IdentityCreated   = 1,
@@ -94,7 +95,8 @@ class UplinkUi
         Enrolling         = 3,
         Enrolled          = 4,
         EnrolRejected     = 5,
-        AwaitingSignature = 6
+        AwaitingSignature = 6,
+        EnrolSent         = 7
     }
 
     ENUM InvitationCheck {

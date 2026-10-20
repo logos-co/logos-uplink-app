@@ -198,8 +198,11 @@ void UplinkBackend::setReleaseDeployment(const QString& chainId, const QString& 
 void UplinkBackend::refresh()
 {
     // uplink_module answers one call at a time, and is busy with the send.
-    if (m_sending)
+    if (m_sending) {
+        if (enrolState() == Enrolling && !m_referral->walletReachable())
+            giveUpEnrol();
         return;
+    }
     refreshNode();
     applyDeployment();
     refreshTerms();   // the module's, whether or not a wallet is open
@@ -429,6 +432,8 @@ void UplinkBackend::refreshReferral()
     if (!participant.ok())
         return;   // not registered yet
     const referral::Participant& p = participant.value;
+    if (enrolState() == EnrolSent)
+        qInfo() << "Uplink: joined; the registration settled";
     setEnrolState(Enrolled);
     setNodeActive(registry.value.active.contains(p.node));
     setReferrerNode(p.referrer);
@@ -676,8 +681,13 @@ void UplinkBackend::enrol()
         fail(QStringLiteral("Create an identity first."));
         return;
     }
-    if (enrolState() == Enrolling || enrolState() == Enrolled || enrolState() == AwaitingSignature)
+    if (enrolState() == Enrolling || enrolState() == EnrolSent || enrolState() == Enrolled
+            || enrolState() == AwaitingSignature)
         return;
+    if (m_sending) {
+        fail(QStringLiteral("Uplink is still waiting on the last attempt. Restart Basecamp to join again now."));
+        return;
+    }
     refreshNode();
     if (nodeIssue() == ModuleUnavailable || nodeIssue() == NodeNotRunning) {
         fail(QStringLiteral("Your node needs to be running to join."));
@@ -706,19 +716,39 @@ void UplinkBackend::finishEnrol(const QString& node, const QString& signature)
     const QString reference = newReference();
     setEnrolState(Enrolling);
     m_sending = true;
+    m_enrolClock.start();
+    qInfo() << "Uplink: preparing the registration; lez_core proves it, which takes minutes without RISC0_DEV_MODE";
     QPointer<UplinkBackend> self(this);
     const int before = m_enrolBefore;
+    const int attempt = m_enrolAttempt;
     m_referral->enrolWithSignatureAsync(reference, participantId(), node, signature,
-                                        [self, reference, before](Result<referral::Status> submitted) {
+                                        [self, reference, before, attempt](Result<referral::Status> submitted) {
         if (!self)
             return;
         self->m_sending = false;
+        const qint64 seconds = self->m_enrolClock.elapsed() / 1000;
+        if (attempt != self->m_enrolAttempt)
+            return;   // given up on; the chain shows it joined if it was sent after all
         if (!self->track(QStringLiteral("register"), submitted, reference)) {
+            qWarning() << "Uplink: the registration wasn't sent, after" << seconds << "s:" << submitted.error;
             self->setEnrolState(before);
             return;
         }
+        qInfo() << "Uplink: registration sent after" << seconds << "s; waiting for it to settle";
         self->m_registerReference = reference;
+        self->setEnrolState(EnrolSent);
     });
+}
+
+// lez_core went away while proving: its process stopped, so the send can't finish.
+void UplinkBackend::giveUpEnrol()
+{
+    qWarning() << "Uplink: lez_core stopped" << m_enrolClock.elapsed() / 1000
+               << "s into preparing the registration; giving it up";
+    ++m_enrolAttempt;
+    setEnrolState(m_enrolBefore);
+    fail(QStringLiteral("Your LEZ wallet stopped while the registration was being prepared, so it wasn't sent. "
+                        "Open the LEZ Wallet again, then join."));
 }
 
 // Asks the node app (QML raises the intent), or the mock one, which answers at once.
