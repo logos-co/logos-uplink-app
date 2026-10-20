@@ -152,6 +152,7 @@ Result<QString> MockReferralService::createParticipant(const QString& label)
         return Result<QString>::success(m_labels.value(label));
     const QString id = nextId("participant");
     m_accounts.insert(id, Account{});
+    m_walletAccounts << id;
     m_labels.insert(label, id);
     return Result<QString>::success(id);
 }
@@ -480,6 +481,21 @@ Result<bool> MockReferralService::walletOpen() { return Result<bool>::success(m_
 Result<QString> MockReferralService::resolveLabel(const QString& label)
 {
     return Result<QString>::success(m_labels.value(label));
+}
+
+Result<QStringList> MockReferralService::privateAccounts()
+{
+    if (!m_walletOpen)
+        return Result<QStringList>::failure(QStringLiteral("no wallet is open"));
+    return Result<QStringList>::success(m_walletAccounts);
+}
+
+Result<bool> MockReferralService::labelAccount(const QString& label, const QString& account)
+{
+    if (m_labels.contains(label))
+        return Result<bool>::success(m_labels.value(label) == account);
+    m_labels.insert(label, account);
+    return Result<bool>::success(true);
 }
 
 Result<QString> MockReferralService::accountAddress(const QString& account)

@@ -47,7 +47,10 @@ Result<PayoutMessage> LezReferralService::payoutMessage(const QString&, quint64)
 Result<QString> LezReferralService::payoutCodeWithSignature(const QString&, quint64, const QString&) { return absent<QString>(); }
 Result<Status> LezReferralService::status(const QString&) { return absent<Status>(); }
 Result<bool> LezReferralService::walletOpen() { return absent<bool>(); }
+bool LezReferralService::walletReachable() { return false; }
 Result<QString> LezReferralService::resolveLabel(const QString&) { return absent<QString>(); }
+Result<QStringList> LezReferralService::privateAccounts() { return absent<QStringList>(); }
+Result<bool> LezReferralService::labelAccount(const QString&, const QString&) { return absent<bool>(); }
 Result<QString> LezReferralService::accountAddress(const QString&) { return absent<QString>(); }
 Result<qint64> LezReferralService::lastSyncedBlock() { return absent<qint64>(); }
 Result<qint64> LezReferralService::currentBlockHeight() { return absent<qint64>(); }

@@ -22,10 +22,14 @@ StepPage {
     property int chainHeight: 0
     property int programIssue: UplinkUi.ProgramUnknown
     property string programDetail: ""
+    // The node has joined already, with a points account not found in this wallet (yet).
+    property bool joinedElsewhere: false
+    property bool findingAccount: false
 
     // The deployment is checked once the wallet is open, so Unknown here means not yet.
     readonly property bool ready: d.nodeDetected && d.walletReady
                                   && root.programIssue === UplinkUi.ProgramReady
+                                  && !root.joinedElsewhere
 
     signal openBlockchainAppRequested()
     signal openLezWalletRequested()
@@ -84,6 +88,29 @@ StepPage {
                 variant: LogosButton.Variant.Primary
                 text: qsTr("Open Blockchain app")
                 onClicked: root.openBlockchainAppRequested()
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            visible: d.nodeDetected && root.joinedElsewhere
+            spacing: Theme.spacing.medium
+
+            LogosNotice {
+                objectName: "uplink.joinedElsewhereNotice"
+                Layout.fillWidth: true
+                shown: true
+                severity: root.findingAccount ? LogosNotice.Info : LogosNotice.Error
+                message: root.findingAccount
+                    ? qsTr("This node has already joined. Looking for its points account in your wallet…")
+                    : qsTr("This node has already joined, with a points account that isn't in this wallet. Open the wallet that has it in the LEZ Wallet app, or restore that wallet from its recovery phrase.")
+            }
+            LogosButton {
+                Layout.alignment: Qt.AlignVCenter
+                visible: !root.findingAccount
+                variant: LogosButton.Variant.Primary
+                text: qsTr("Open LEZ Wallet")
+                onClicked: root.openLezWalletRequested()
             }
         }
 

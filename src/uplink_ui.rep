@@ -86,7 +86,8 @@ class UplinkUi
         NoWalletOpen       = 2
     }
 
-    // AwaitingSignature: the node app is asked to sign the enrolment.
+    // Joining: AwaitingSignature (the node app is asked to sign), Enrolling (the registration
+    // is proved and sent: minutes without RISC0_DEV_MODE), EnrolSent (waiting for it to settle).
     ENUM EnrolState {
         NoIdentity        = 0,
         IdentityCreated   = 1,
@@ -94,7 +95,8 @@ class UplinkUi
         Enrolling         = 3,
         Enrolled          = 4,
         EnrolRejected     = 5,
-        AwaitingSignature = 6
+        AwaitingSignature = 6,
+        EnrolSent         = 7
     }
 
     ENUM InvitationCheck {
@@ -131,6 +133,11 @@ class UplinkUi
     PROP(int chainHeight READONLY)
 
     PROP(int enrolState READONLY)
+    // Your node is registered. Until enrolState is Enrolled, that's with a points account Uplink
+    // hasn't found in this wallet: findingAccount while it looks (a wallet restored from its
+    // recovery phrase has its accounts back, but not their labels), then it's another wallet's.
+    PROP(bool nodeRegistered READONLY)
+    PROP(bool findingAccount READONLY)
     PROP(QString participantId READONLY)
     PROP(QString identityLabel READONLY)      // the identity account's name in the LEZ Wallet app
     PROP(QString identityAddress READONLY)    // base58, as the LEZ Wallet app shows it
@@ -149,6 +156,7 @@ class UplinkUi
     PROP(QString cashedOutPoints READONLY)    // every receipt so far
     PROP(QVariantList receipts READONLY)      // [{index, account, points}], oldest first
     PROP(int cashOutState READONLY)
+    PROP(QString cashOutError READONLY)       // why the last cash-out stopped; "" from the next start
     PROP(QString payoutCode READONLY)         // for the payout form, once CashOutDone
     PROP(QString payoutPoints READONLY)       // what that code is for
     PROP(QString payoutFormUrl READONLY)      // where the user pastes the code

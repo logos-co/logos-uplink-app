@@ -44,7 +44,10 @@ public:
                                 Done<referral::Status> done) override;
 
     Result<bool> walletOpen() override;
+    bool walletReachable() override;
     Result<QString> resolveLabel(const QString& label) override;
+    Result<QStringList> privateAccounts() override;
+    Result<bool> labelAccount(const QString& label, const QString& account) override;
     Result<QString> accountAddress(const QString& account) override;
     Result<qint64> lastSyncedBlock() override;
     Result<qint64> currentBlockHeight() override;

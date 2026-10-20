@@ -15,6 +15,7 @@ StepPage {
     objectName: "uplink.JoinStep"
 
     property int invitationCheck: UplinkUi.InvitationEmpty
+    property int enrolState: UplinkUi.NoIdentity
     property bool busy: false
     property string error: ""
 
@@ -48,8 +49,16 @@ StepPage {
         color: Theme.palette.textSecondary
     }
 
+    JoinProgress {
+        id: progress
+
+        visible: progress.stage >= 0
+        enrolState: root.enrolState
+    }
+
     ChoiceCard {
         objectName: "uplink.inviteChoice"
+        visible: !progress.visible
         enabled: !root.busy
         title: qsTr("I have an invitation")
         description: qsTr("Paste the code your inviter shared. You join under them, and that can’t be changed later.")
@@ -59,7 +68,7 @@ StepPage {
 
     ColumnLayout {
         Layout.fillWidth: true
-        visible: root.mode === "invite"
+        visible: root.mode === "invite" && !progress.visible
         spacing: Theme.spacing.small
 
         LogosTextArea {
@@ -89,6 +98,7 @@ StepPage {
 
     ChoiceCard {
         objectName: "uplink.rootChoice"
+        visible: !progress.visible
         enabled: !root.busy
         title: qsTr("Start my own tree")
         description: qsTr("Join without a referral, as the root of a new tree.")

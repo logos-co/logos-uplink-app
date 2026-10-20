@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QMap>
 #include <QObject>
 #include <QSet>
@@ -74,8 +75,11 @@ private:
     void failCashOut(const QString& error);
     void askNodeApp(const QString& intent, const QVariantMap& params);
     void finishEnrol(const QString& node, const QString& signature);
+    void giveUpEnrol();
     void syncNextChunk();
     void refreshReferral();
+    bool findOwnAccount();
+    bool joining() const;
     void autoClaimIfDue();
     void reconcileOperations();
     bool hasPendingOperation() const;
@@ -96,11 +100,15 @@ private:
     QString m_dataDir;                               // "" = the standard location
     NodeApp m_nodeApp;                               // mock mode's; empty: the real one, through QML
     QVariantMap m_request;                           // {ref, intent, params} the node app is asked
+    QString m_searched;                              // the node and wallet accounts last searched
+    QString m_found;                                 // the account found then, if any
     int m_enrolBefore = 0;                           // the enrol state to go back to if it says no
     quint64 m_payoutIndex = 0;                       // the receipt whose code is being signed
     QString m_releaseChain;                          // "" = any chain
     QString m_releaseProgram;                        // "" = the module's own choice
     bool m_deploymentApplied = false;
+    QElapsedTimer m_enrolClock;                      // since the registration started being prepared
+    int m_enrolAttempt = 0;                          // bumped when one is given up, so its answer is ignored
     bool m_sending = false;                          // a transaction is being proved and sent
     QTimer m_poll;
     bool m_syncing = false;

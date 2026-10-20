@@ -30,7 +30,7 @@ Item {
     property int cashOutState: UplinkUi.CashOutIdle
     property string payoutCode: ""
     property string payoutPoints: ""
-    property string error: ""
+    property string cashOutError: ""
     property string payoutFormUrl: ""
     property var termsSections: []
     property bool autoClaim: true
@@ -53,6 +53,7 @@ Item {
     onReferralsChanged: d.rebuild()
     onNodeIdChanged: d.rebuild()
     onNodeActiveChanged: d.rebuild()
+    onNodeIssueChanged: d.rebuild()
     Component.onCompleted: d.rebuild()
 
     QtObject {
@@ -60,6 +61,7 @@ Item {
 
         readonly property bool nodeDown: root.nodeIssue === UplinkUi.ModuleUnavailable
                                          || root.nodeIssue === UplinkUi.NodeNotRunning
+        readonly property bool notCore: root.nodeIssue === UplinkUi.NotCoreNode
 
         function shortId(id) {
             return id.length > 20 ? id.slice(0, 10) + "…" + id.slice(-8) : id
@@ -100,7 +102,8 @@ Item {
                 sub: shortId(root.nodeId), joined: "", marks: (root.myActivity || []).join(","),
                 statusText: me.text, statusColor: me.color,
                 // Only epochs your own node was active in pay for your referrals.
-                note: root.nodeActive ? qsTr("earning this epoch") : qsTr("not earning this epoch"),
+                note: d.notCore ? qsTr("not a Blend core node")
+                      : root.nodeActive ? qsTr("earning this epoch") : qsTr("not earning this epoch"),
             })
             for (const r of (root.referrals || [])) {
                 const st = status(r.activity)
@@ -262,6 +265,14 @@ Item {
                     message: qsTr("Your node is not running — referral points are paused until it is back.")
                 }
 
+                LogosNotice {
+                    objectName: "uplink.notCoreBanner"
+                    Layout.fillWidth: true
+                    shown: d.notCore
+                    severity: LogosNotice.Warning
+                    message: qsTr("Your node isn't a Blend core node, so it earns no points. Activate Blend core in the Blockchain app.")
+                }
+
                 LogosTable {
                     id: nodeTable
 
@@ -272,26 +283,28 @@ Item {
                     rowHeight: 60
 
                     columns: [
+                        // Node is as wide as Status and the edit column together, and Activity
+                        // takes the rest, so the activity dots sit in the middle of the page.
                         LogosTableColumn {
                             title: qsTr("Node")
                             minWidth: 200
-                            preferredWidth: 260
-                            fillWidth: true
+                            preferredWidth: 336
                             cellDelegate: nodeCell
                         },
                         LogosTableColumn {
                             title: qsTr("Activity · last 16 epochs")
                             minWidth: 220
                             preferredWidth: 240
-                            maxWidth: 260
+                            fillWidth: true
+                            alignment: Qt.AlignHCenter | Qt.AlignVCenter
                             cellDelegate: activityCell
                         },
-                        // Node takes the spare width; Status sits at the right edge.
+                        // At the right, left-aligned, so every badge starts at the same place
+                        // whatever its note.
                         LogosTableColumn {
                             title: qsTr("Status")
                             minWidth: 200
                             preferredWidth: 280
-                            alignment: Qt.AlignRight | Qt.AlignVCenter
                             cellDelegate: statusCell
                         },
                         LogosTableColumn {
@@ -417,7 +430,7 @@ Item {
             readonly property var r: rowItem ? rowItem : d.emptyRow
 
             ActivityDots {
-                anchors.verticalCenter: parent.verticalCenter
+                anchors.centerIn: parent
                 marks: activityCellRoot.r.marks ? activityCellRoot.r.marks.split(",").map(Number) : []
                 live: !(activityCellRoot.r.mine && d.nodeDown)
             }
@@ -434,8 +447,6 @@ Item {
 
             spacing: Theme.spacing.small
 
-            // Right-aligned, as the column is.
-            Item { Layout.fillWidth: true }
             LogosBadge {
                 Layout.alignment: Qt.AlignVCenter
                 text: statusCellRoot.r.statusText
@@ -448,6 +459,7 @@ Item {
                 font.pixelSize: Theme.typography.secondaryText
                 color: Theme.palette.textTertiary
             }
+            Item { Layout.fillWidth: true }
         }
     }
 
@@ -474,7 +486,7 @@ Item {
         cashOutState: root.cashOutState
         payoutCode: root.payoutCode
         payoutPoints: root.payoutPoints
-        error: root.error
+        error: root.cashOutError
         formUrl: root.payoutFormUrl
         onCashOutRequested: root.cashOutRequested()
         onInviteRequested: inviteDialog.open()

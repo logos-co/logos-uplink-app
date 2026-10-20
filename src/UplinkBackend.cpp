@@ -198,8 +198,11 @@ void UplinkBackend::setReleaseDeployment(const QString& chainId, const QString& 
 void UplinkBackend::refresh()
 {
     // uplink_module answers one call at a time, and is busy with the send.
-    if (m_sending)
+    if (m_sending) {
+        if (enrolState() == Enrolling && !m_referral->walletReachable())
+            giveUpEnrol();
         return;
+    }
     refreshNode();
     applyDeployment();
     refreshTerms();   // the module's, whether or not a wallet is open
@@ -269,6 +272,12 @@ void UplinkBackend::refreshWallet()
     const auto labelled = m_referral->resolveLabel(kIdentityLabel);
     if (!labelled.ok() || labelled.value.compare(participantId(), Qt::CaseInsensitive) == 0)
         return;
+    // Found by searching, but the label was another account's: kept while the wallet has it.
+    if (!m_found.isEmpty() && participantId() == m_found) {
+        const auto accounts = m_referral->privateAccounts();
+        if (accounts.ok() && accounts.value.contains(m_found, Qt::CaseInsensitive))
+            return;
+    }
     forgetIdentity();
     if (labelled.value.isEmpty())
         return;
@@ -313,6 +322,54 @@ void UplinkBackend::acceptTerms()
         return;
     }
     setTermsAccepted(accepted.value);
+}
+
+bool UplinkBackend::joining() const
+{
+    return enrolState() == Invited || enrolState() == AwaitingSignature || enrolState() == Enrolling
+        || enrolState() == EnrolSent;
+}
+
+// The node is registered, but not with the labelled account: a wallet restored from its
+// recovery phrase has its accounts back without their labels. Looks for the wallet's private
+// account registered with this node, labels it again, and makes it the points account.
+bool UplinkBackend::findOwnAccount()
+{
+    // A restored wallet finds its accounts' state by syncing.
+    if (m_syncing || syncedBlock() < chainHeight()) {
+        setFindingAccount(true);
+        return false;
+    }
+    const auto accounts = m_referral->privateAccounts();
+    if (!accounts.ok())
+        return false;
+    const QString searched = nodeId().toLower() + QLatin1Char('/') + accounts.value.join(QLatin1Char(','));
+    if (searched != m_searched) {
+        m_searched = searched;
+        m_found.clear();
+        for (const QString& account : accounts.value) {
+            const auto p = m_referral->participant(account);
+            if (p.ok() && p.value.node.compare(nodeId(), Qt::CaseInsensitive) == 0) {
+                m_found = account;
+                break;
+            }
+        }
+    }
+    setFindingAccount(false);
+    if (m_found.isEmpty())
+        return false;
+    if (participantId() != m_found) {
+        const auto labelled = m_referral->labelAccount(kIdentityLabel, m_found);
+        if (!labelled.ok() || !labelled.value)
+            qWarning() << "Uplink: found this node's points account, but its label is another account's;"
+                       << "using it without one";
+        qInfo() << "Uplink: found this node's points account in the wallet";
+        forgetIdentity();
+        setParticipantId(m_found);
+        setEnrolState(IdentityCreated);
+        showIdentity();
+    }
+    return true;
 }
 
 // Everything tied to the points account, as if none had been found.
@@ -423,12 +480,20 @@ void UplinkBackend::refreshReferral()
     setEpoch(static_cast<int>(registry.value.epoch));
     setActiveCount(registry.value.active.size());
 
-    if (participantId().isEmpty())
-        return;
-    const auto participant = m_referral->participant(participantId());
+    const bool registered = !nodeId().isEmpty()
+        && registry.value.nodes.contains(nodeId(), Qt::CaseInsensitive);
+    setNodeRegistered(registered);
+    auto participant = participantId().isEmpty()
+        ? Result<referral::Participant>::failure(QStringLiteral("no points account"))
+        : m_referral->participant(participantId());
+    if (!participant.ok() && registered && !joining() && findOwnAccount())
+        participant = m_referral->participant(participantId());
     if (!participant.ok())
         return;   // not registered yet
+    setFindingAccount(false);
     const referral::Participant& p = participant.value;
+    if (enrolState() == EnrolSent)
+        qInfo() << "Uplink: joined; the registration settled";
     setEnrolState(Enrolled);
     setNodeActive(registry.value.active.contains(p.node));
     setReferrerNode(p.referrer);
@@ -676,8 +741,13 @@ void UplinkBackend::enrol()
         fail(QStringLiteral("Create an identity first."));
         return;
     }
-    if (enrolState() == Enrolling || enrolState() == Enrolled || enrolState() == AwaitingSignature)
+    if (enrolState() == Enrolling || enrolState() == EnrolSent || enrolState() == Enrolled
+            || enrolState() == AwaitingSignature)
         return;
+    if (m_sending) {
+        fail(QStringLiteral("Uplink is still waiting on the last attempt. Restart Basecamp to join again now."));
+        return;
+    }
     refreshNode();
     if (nodeIssue() == ModuleUnavailable || nodeIssue() == NodeNotRunning) {
         fail(QStringLiteral("Your node needs to be running to join."));
@@ -685,6 +755,10 @@ void UplinkBackend::enrol()
     }
     if (!termsAccepted()) {
         fail(QStringLiteral("Accept the program terms first."));
+        return;
+    }
+    if (nodeRegistered()) {
+        fail(QStringLiteral("This node has already joined, with a points account that isn't in this wallet."));
         return;
     }
     const auto program = m_referral->programAccount();
@@ -706,19 +780,39 @@ void UplinkBackend::finishEnrol(const QString& node, const QString& signature)
     const QString reference = newReference();
     setEnrolState(Enrolling);
     m_sending = true;
+    m_enrolClock.start();
+    qInfo() << "Uplink: preparing the registration; lez_core proves it, which takes minutes without RISC0_DEV_MODE";
     QPointer<UplinkBackend> self(this);
     const int before = m_enrolBefore;
+    const int attempt = m_enrolAttempt;
     m_referral->enrolWithSignatureAsync(reference, participantId(), node, signature,
-                                        [self, reference, before](Result<referral::Status> submitted) {
+                                        [self, reference, before, attempt](Result<referral::Status> submitted) {
         if (!self)
             return;
         self->m_sending = false;
+        const qint64 seconds = self->m_enrolClock.elapsed() / 1000;
+        if (attempt != self->m_enrolAttempt)
+            return;   // given up on; the chain shows it joined if it was sent after all
         if (!self->track(QStringLiteral("register"), submitted, reference)) {
+            qWarning() << "Uplink: the registration wasn't sent, after" << seconds << "s:" << submitted.error;
             self->setEnrolState(before);
             return;
         }
+        qInfo() << "Uplink: registration sent after" << seconds << "s; waiting for it to settle";
         self->m_registerReference = reference;
+        self->setEnrolState(EnrolSent);
     });
+}
+
+// lez_core went away while proving: its process stopped, so the send can't finish.
+void UplinkBackend::giveUpEnrol()
+{
+    qWarning() << "Uplink: lez_core stopped" << m_enrolClock.elapsed() / 1000
+               << "s into preparing the registration; giving it up";
+    ++m_enrolAttempt;
+    setEnrolState(m_enrolBefore);
+    fail(QStringLiteral("Your LEZ wallet stopped while the registration was being prepared, so it wasn't sent. "
+                        "Open the LEZ Wallet again, then join."));
 }
 
 // Asks the node app (QML raises the intent), or the mock one, which answers at once.
@@ -812,12 +906,13 @@ void UplinkBackend::cashOutAll()
     setLastError({});
     if (enrolState() != Enrolled || cashOutState() != CashOutIdle)
         return;
+    setCashOutError({});
     if (points::isZero(claimablePoints()) && points::isZero(rewardBalance())) {
-        fail(QStringLiteral("No points to cash out yet."));
+        failCashOut(QStringLiteral("No points to cash out yet."));
         return;
     }
     if (m_sending) {
-        fail(QStringLiteral("A collection is still being sent. Try again in a moment."));
+        failCashOut(QStringLiteral("A collection is still being sent. Try again in a moment."));
         return;
     }
     // An auto-claim still settling becomes this cash-out's collect step: it moves on when it lands.
@@ -906,6 +1001,7 @@ void UplinkBackend::payoutCodeFor(int receiptIndex)
     if (cashOutState() != CashOutIdle && cashOutState() != CashOutDone)
         return;
     setLastError({});
+    setCashOutError({});
     setPayoutCode({});
     preparePayoutCode(quint64(receiptIndex));
 }
@@ -941,6 +1037,7 @@ void UplinkBackend::preparePayoutCode(quint64 receiptIndex)
 
 void UplinkBackend::failCashOut(const QString& error)
 {
+    setCashOutError(error);
     m_collectReference.clear();
     m_cashOutReference.clear();
     m_receiptsBefore.clear();

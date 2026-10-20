@@ -3,6 +3,7 @@
 
 #include <logos_test.h>
 
+#include <QCoreApplication>
 #include <QTemporaryDir>
 #include <memory>
 
@@ -28,7 +29,7 @@ public:
     Result<QString> invitation(const QString& p, const QString& n) override { return m->invitation(p, n); }
     Result<InvitationCheck> checkInvitation(const QString& b) override { return m->checkInvitation(b); }
     Result<QString> importInvitation(const QString& p, const QString& b) override { return m->importInvitation(p, b); }
-    Result<Registry> registry() override { return m->registry(); }
+    Result<Registry> registry() override { return registryFails ? Result<Registry>::failure("uplink_module did not answer") : m->registry(); }
     Result<Activity> activity(const QStringList& n, int c) override { return m->activity(n, c); }
     Result<QList<Note>> notes(const QString& p) override { return m->notes(p); }
     Result<QString> claimable(const QString& p) override { return m->claimable(p); }
@@ -43,12 +44,38 @@ public:
     Result<PayoutMessage> payoutMessage(const QString& p, quint64 i) override { return m->payoutMessage(p, i); }
     Result<QString> payoutCodeWithSignature(const QString& p, quint64 i, const QString& sig) override { return m->payoutCodeWithSignature(p, i, sig); }
     Result<Status> status(const QString& r) override { return m->status(r); }
-    Result<bool> walletOpen() override { return m->walletOpen(); }
-    Result<QString> resolveLabel(const QString& l) override { return m->resolveLabel(l); }
+    Result<bool> walletOpen() override { return busy ? Result<bool>::failure("lez_core did not answer") : m->walletOpen(); }
+    bool walletReachable() override { return reachable; }
+    Result<QString> resolveLabel(const QString& l) override { return busy ? Result<QString>::failure("lez_core did not answer") : m->resolveLabel(l); }
+    Result<QStringList> privateAccounts() override { return m->privateAccounts(); }
+    Result<bool> labelAccount(const QString& l, const QString& a) override { return m->labelAccount(l, a); }
     Result<QString> accountAddress(const QString& a) override { return m->accountAddress(a); }
     Result<qint64> lastSyncedBlock() override { return m->lastSyncedBlock(); }
     Result<qint64> currentBlockHeight() override { return m->currentBlockHeight(); }
     Result<bool> syncToBlock(qint64 b) override { return m->syncToBlock(b); }
+
+    // With holdSends, a registration stays in flight (proving) until finishSend().
+    void enrolWithSignatureAsync(const QString& r, const QString& p, const QString& n, const QString& sig,
+                                 Done<Status> done) override
+    {
+        if (!holdSends)
+            return ReferralService::enrolWithSignatureAsync(r, p, n, sig, std::move(done));
+        held = [this, r, p, n, sig, done = std::move(done)](bool sent) {
+            done(sent ? m->enrolWithSignature(r, p, n, sig) : Result<Status>::failure("lez_core is not connected"));
+        };
+    }
+    void finishSend(bool sent = true)
+    {
+        auto send = std::move(held);
+        held = nullptr;
+        send(sent);
+    }
+
+    bool reachable = true;
+    bool busy = false;            // lez_core doesn't answer in time
+    bool registryFails = false;
+    bool holdSends = false;
+    std::function<void(bool sent)> held;
 
 private:
     std::shared_ptr<MockReferralService> m;
@@ -74,7 +101,9 @@ struct Harness {
         UplinkBackend::NodeApp nodeApp;
         if (app == NodeApp::Answers)
             nodeApp = &MockNodeService::answerRequest;
-        backend = std::make_unique<UplinkBackend>(std::make_unique<SharedReferral>(lez),
+        auto shared = std::make_unique<SharedReferral>(lez);
+        referral = shared.get();
+        backend = std::make_unique<UplinkBackend>(std::move(shared),
                                                   std::make_unique<MockNodeService>(issue), data.path(),
                                                   std::move(nodeApp));
         backend->refresh();
@@ -97,6 +126,16 @@ struct Harness {
         return backend->enrolState() == B::Enrolled;
     }
 
+    // Lets the wallet sync catch up (it runs in chunks on the event loop), then polls.
+    void sync()
+    {
+        backend->refresh();
+        for (int i = 0; i < 10000 && backend->syncedBlock() < backend->chainHeight(); ++i)
+            QCoreApplication::processEvents();
+        QCoreApplication::processEvents();   // the last chunk ends the sync on the next pass
+        backend->refresh();
+    }
+
     // Collect then cash out, one refresh (poll) per transaction.
     void cashOut()
     {
@@ -107,6 +146,7 @@ struct Harness {
 
     QTemporaryDir data;
     std::shared_ptr<MockReferralService> lez;
+    SharedReferral* referral = nullptr;   // owned by backend
     NodeApp app;
     std::unique_ptr<UplinkBackend> backend;
 };
@@ -190,7 +230,7 @@ LOGOS_TEST(backend_joins_under_an_invitation) {
     h.backend->joinUnder(code);
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Invited));
     h.backend->enrol();
-    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolling));
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::EnrolSent));
     h.backend->refresh();
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
     LOGOS_ASSERT_EQ(h.backend->referrerNode(), MockReferralService::inviterNode());
@@ -248,9 +288,53 @@ LOGOS_TEST(backend_asks_the_node_app_to_sign_the_enrolment) {
     LOGOS_ASSERT_EQ(params.value("referrer").toString(), QString());
     h.approve();
     LOGOS_ASSERT_EQ(h.backend->signRequest().size(), 0);
-    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolling));
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::EnrolSent));
     h.backend->refresh();
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+}
+
+LOGOS_TEST(backend_reports_each_stage_of_joining) {
+    Harness h(node::Issue::None, NodeApp::Manual);
+    h.referral->holdSends = true;
+    h.backend->acceptTerms();
+    h.backend->createIdentity();
+    h.backend->enrol();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));
+    h.approve();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolling));
+    h.backend->refresh();   // still proving
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolling));
+    h.referral->finishSend();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::EnrolSent));
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+    LOGOS_ASSERT_EQ(h.backend->lastError(), QString());
+}
+
+LOGOS_TEST(backend_gives_up_joining_when_the_wallet_stops_while_proving) {
+    Harness h(node::Issue::None, NodeApp::Manual);
+    h.referral->holdSends = true;
+    h.backend->acceptTerms();
+    h.backend->createIdentity();
+    h.backend->enrol();
+    h.approve();
+    h.referral->reachable = false;
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));
+    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("LEZ wallet stopped"));
+
+    // The module hasn't answered yet, so another attempt would queue behind it.
+    h.referral->reachable = true;
+    h.backend->enrol();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));
+    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("still waiting"));
+
+    // Its late answer changes nothing; then joining works again.
+    h.referral->holdSends = false;
+    h.referral->finishSend(false);
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));
+    h.backend->enrol();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));
 }
 
 LOGOS_TEST(backend_goes_back_when_the_node_app_declines) {
@@ -278,7 +362,7 @@ LOGOS_TEST(backend_ignores_an_answer_for_an_older_request) {
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));
     LOGOS_ASSERT_EQ(h.backend->lastError(), QString());
     h.approve();
-    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolling));
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::EnrolSent));
 }
 
 LOGOS_TEST(backend_refuses_an_answer_for_another_node) {
@@ -380,6 +464,51 @@ LOGOS_TEST(backend_drops_the_old_account_when_the_wallet_is_switched) {
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));   // the new one sticks
 }
 
+LOGOS_TEST(backend_finds_its_points_account_in_a_restored_wallet) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    const QString account = h.backend->participantId();
+    h.lez->restoreWallet();
+    h.start();   // Uplink opened again, on the restored wallet
+    LOGOS_ASSERT_EQ(h.backend->participantId(), QString());
+    LOGOS_ASSERT_TRUE(h.backend->nodeRegistered());
+    LOGOS_ASSERT_TRUE(h.backend->findingAccount());   // until the wallet has synced
+    h.sync();
+    LOGOS_ASSERT_EQ(h.backend->participantId(), account);
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+    LOGOS_ASSERT_FALSE(h.backend->findingAccount());
+    LOGOS_ASSERT_EQ(h.lez->resolveLabel("Uplink points account").value, account);   // labelled again
+}
+
+LOGOS_TEST(backend_keeps_a_found_account_whose_label_is_taken) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    const QString account = h.backend->participantId();
+    h.lez->restoreWallet();
+    h.lez->createParticipant("Uplink points account");   // joined again before Uplink could tell
+    h.start();
+    h.sync();
+    LOGOS_ASSERT_EQ(h.backend->participantId(), account);
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->participantId(), account);
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+}
+
+LOGOS_TEST(backend_says_when_the_node_joined_from_another_wallet) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    h.lez->switchWallet();
+    h.sync();
+    LOGOS_ASSERT_TRUE(h.backend->nodeRegistered());
+    LOGOS_ASSERT_FALSE(h.backend->findingAccount());
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::NoIdentity));
+    h.backend->createIdentity();
+    h.backend->enrol();
+    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("already joined"));
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));
+}
+
 // ---- Activity -------------------------------------------------------------------------
 
 LOGOS_TEST(backend_shows_activity_from_the_module) {
@@ -474,6 +603,31 @@ LOGOS_TEST(backend_cashes_out_into_a_payout_code) {
 
     h.backend->cashOutAll();   // the same epoch: nothing new
     LOGOS_ASSERT_EQ(h.backend->lastError(), QString("No points to cash out yet."));
+    LOGOS_ASSERT_EQ(h.backend->cashOutError(), QString("No points to cash out yet."));
+}
+
+LOGOS_TEST(backend_keeps_the_points_account_while_the_wallet_is_busy) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    const QString account = h.backend->participantId();
+    h.referral->busy = true;
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->walletIssue(), int(B::LezCoreUnavailable));
+    LOGOS_ASSERT_EQ(h.backend->participantId(), account);
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+    h.referral->busy = false;
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->walletIssue(), int(B::WalletReady));
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+}
+
+LOGOS_TEST(backend_keeps_background_errors_out_of_the_cash_out) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    h.referral->registryFails = true;
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->lastError(), QString("uplink_module did not answer"));
+    LOGOS_ASSERT_EQ(h.backend->cashOutError(), QString());
 }
 
 LOGOS_TEST(backend_cashes_out_what_auto_claim_already_collected) {
