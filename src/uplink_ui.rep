@@ -149,7 +149,12 @@ class UplinkUi
     PROP(int activeCount READONLY)
     PROP(QVariantList myActivity READONLY)    // last 16 published epochs, oldest first: 1 active, 0 not, -1 unknown
     PROP(bool nodeActive READONLY)            // your own node is in this epoch's active set; only such epochs pay
-    PROP(bool nodeLeftCore READONLY)          // not a Blend core node now, but active in one of myActivity's epochs
+    PROP(bool nodeLeftCore READONLY)
+    // The points account joined with another node (accountNodeId) than the one running (nodeId):
+    // the running node earns nothing for it, and can't sign its cash-outs or payout codes.
+    // Known only when both ids are.
+    PROP(bool accountOnOtherNode READONLY)
+    PROP(QString accountNodeId READONLY)          // not a Blend core node now, but active in one of myActivity's epochs
     PROP(QVariantList referrals READONLY)     // [{node, label, activeThisEpoch, lastPaidEpoch, pending, activity, joinedEpoch, joinedAgo}]; activity as myActivity, -2 before it joined
     PROP(QString claimablePoints READONLY)
     // Published epochs not counted yet (their active sets are in neither the module's record

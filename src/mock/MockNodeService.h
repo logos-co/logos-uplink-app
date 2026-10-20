@@ -22,7 +22,11 @@ public:
     static QVariantMap answerRequest(const QVariantMap& request);
 
     void setIssue(node::Issue issue) { m_issue = issue; }
+    // Another node than the one nodeId() names: as when the wallet's account joined with that
+    // one (mock:other_node).
+    void setRunningNodeId(const QString& id) { m_nodeId = id; }
 
 private:
     node::Issue m_issue = node::Issue::None;
+    QString m_nodeId = nodeId();
 };

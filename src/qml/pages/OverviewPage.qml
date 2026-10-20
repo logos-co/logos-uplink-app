@@ -22,6 +22,8 @@ Item {
     property var receipts: []
     property int nodeIssue: UplinkUi.ModuleUnavailable
     property bool nodeLeftCore: false
+    property bool accountOnOtherNode: false
+    property string accountNodeId: ""
     property int receiptSearch: UplinkUi.SearchIdle
     property int receiptsFound: 0
     property int historyState: UplinkUi.HistoryComplete
@@ -63,6 +65,7 @@ Item {
     onNodeActiveChanged: d.rebuild()
     onNodeIssueChanged: d.rebuild()
     onNodeLeftCoreChanged: d.rebuild()
+    onAccountOnOtherNodeChanged: d.rebuild()
     Component.onCompleted: d.rebuild()
 
     QtObject {
@@ -107,8 +110,12 @@ Item {
             const next = []
             const me = status(root.myActivity)
             next.push({
-                node: root.nodeId, mine: true, name: qsTr("My node"), labelled: true,
-                sub: shortId(root.nodeId), joined: "", marks: (root.myActivity || []).join(","),
+                // The activity and points are the account's node's: when that isn't the one
+                // running, its row says so.
+                node: root.accountOnOtherNode ? root.accountNodeId : root.nodeId, mine: true,
+                name: root.accountOnOtherNode ? qsTr("Account's node") : qsTr("My node"), labelled: true,
+                sub: shortId(root.accountOnOtherNode ? root.accountNodeId : root.nodeId), joined: "",
+                marks: (root.myActivity || []).join(","),
                 statusText: me.text, statusColor: me.color,
                 // Only epochs your own node was active in pay for your referrals.
                 note: d.notCore ? (root.nodeLeftCore ? qsTr("dropped out of Blend core") : qsTr("not a Blend core node"))
@@ -323,6 +330,15 @@ Item {
                         text: qsTr("Open LEZ Explorer")
                         onClicked: root.openExplorerRequested()
                     }
+                }
+
+                LogosNotice {
+                    objectName: "uplink.otherNodeBanner"
+                    Layout.fillWidth: true
+                    shown: root.accountOnOtherNode
+                    severity: LogosNotice.Warning
+                    message: qsTr("This points account belongs to another node (%1). The node you're running (%2) isn't earning for it. To cash out or get payout codes, use the Blockchain app with that node.")
+                             .arg(d.shortId(root.accountNodeId)).arg(d.shortId(root.nodeId))
                 }
 
                 LogosNotice {

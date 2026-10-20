@@ -122,12 +122,12 @@ sync with its nodes.
    just devnet blend-join 1      # a member two epochs later
    ```
 
-2. **Give node 1 a keystore** the Blockchain app can sign from. The devnet writes the key as
-   `node.key` and the public key as `provider_id`; this puts them in the keystore format, readable by
-   you only. `just devnet reset` deletes it with the rest of `devnet/state`.
+2. **Give node 1 a keystore** the Blockchain app can sign from, with uplink_module's `devnet/keystore.sh`
+   (in the uplink checkout). `just devnet reset` deletes it with the rest of `devnet/state`, so run
+   it again after each reset.
 
    ```bash
-   d=<uplink>/devnet/state/config/node-1; ( umask 077; printf 'public_keys:\n  BlendSigning: %s\nsecret_keys:\n  BlendSigning: !Ed25519 %s\n' "$(tr -d ' \n' < "$d/provider_id")" "$(tr -d ' \n' < "$d/node.key")" > "$d/keystore.yaml" )
+   sh <uplink_module>/devnet/keystore.sh 1
    ```
 
 3. **Run Uplink**, from this repo. `RISC0_DEV_MODE=1` skips proving, as the devnet's own services do:

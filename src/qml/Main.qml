@@ -194,6 +194,8 @@ Rectangle {
             payoutPoints: d.backend ? d.backend.payoutPoints : ""
             cashOutError: d.backend ? d.backend.cashOutError : ""
             nodeLeftCore: d.backend ? d.backend.nodeLeftCore : false
+            accountOnOtherNode: d.backend ? d.backend.accountOnOtherNode : false
+            accountNodeId: d.backend ? d.backend.accountNodeId : ""
             receiptSearch: d.backend ? d.backend.receiptSearch : UplinkUi.SearchIdle
             receiptsFound: d.backend ? d.backend.receiptsFound : 0
             historyState: d.backend ? d.backend.historyState : UplinkUi.HistoryComplete
