@@ -85,7 +85,7 @@ logos-blockchain/uplink prints it). `chain_id` is the node's chain ID, as Uplink
 shows it; when set, Uplink refuses to run against a node on another chain. Uplink reads them at
 startup from the `metadata.json` installed next to its plugin, as the Blockchain app reads its
 `bootstrap_peers`, and selects the deployment in uplink_module on every refresh; empty leaves
-the module's own choice (`configure` or `REFERRAL_PROGRAM_ACCOUNT`). The mock ignores both.
+the module's own choice (`configure` or `UPLINK_PROGRAM`). The mock ignores both.
 
 ```bash
 nix run .                              # everything real
@@ -104,6 +104,70 @@ runs need no Blockchain app.
 It settles operations on the next poll (5 s), seeds three children when you
 register, and publishes a new epoch every 30 s (`UPLINK_MOCK_EPOCH_MS` changes that). The only
 registered node at start is `MockReferralService::inviterNode()`.
+
+### Testing on uplink's devnet
+
+[logos-blockchain/uplink](https://github.com/logos-blockchain/uplink)'s devnet runs four nodes, the
+LEZ sequencer and indexer, and the oracle in Docker. Uplink joins as one of its nodes (here node 1):
+the Blockchain app signs with that node's key, and Uplink reads the node's status from its HTTP API.
+The Blockchain app doesn't run the node; its node (0.3.0-rc.5) can't read the devnet's configs or
+sync with its nodes.
+
+1. **Start the devnet**, in the uplink checkout, with node 1 in Blend and funded. `fund-sdp.sh` is in
+   uplink_module's `devnet/`: genesis funds the nodes' Blend activity for only a few epochs.
+
+   ```bash
+   just devnet up
+   sh <uplink_module>/devnet/fund-sdp.sh
+   just devnet blend-join 1      # a member two epochs later
+   ```
+
+2. **Give node 1 a keystore** the Blockchain app can sign from. The devnet writes the key as
+   `node.key` and the public key as `provider_id`; this puts them in the keystore format, readable by
+   you only. `just devnet reset` deletes it with the rest of `devnet/state`.
+
+   ```bash
+   d=<uplink>/devnet/state/config/node-1; ( umask 077; printf 'public_keys:\n  BlendSigning: %s\nsecret_keys:\n  BlendSigning: !Ed25519 %s\n' "$(tr -d ' \n' < "$d/provider_id")" "$(tr -d ' \n' < "$d/node.key")" > "$d/keystore.yaml" )
+   ```
+
+3. **Run Uplink**, from this repo. `RISC0_DEV_MODE=1` skips proving, as the devnet's own services do:
+   a real proof takes minutes and can take lez_core down. Use a new `--user-dir` after every reset,
+   since the old one remembers the previous chain.
+
+   ```bash
+   RISC0_DEV_MODE=1 \
+   UPLINK_PROGRAM=$(cat <uplink>/devnet/state/program) \
+   UPLINK_NODE=devnet:http://127.0.0.1:18081 UPLINK_NODE_ID=$(cat <uplink>/devnet/state/config/node-1/provider_id) \
+   nix run . -- \
+     --app blockchain_ui=path:../logos-blockchain-ui \
+     --app lez_wallet_ui=path:../logos-execution-zone-wallet-ui \
+     --user-dir /tmp/uplink-devnet
+   ```
+
+4. **In the Blockchain app**, choose `<uplink>/devnet/state/config/node-1/config.yaml`. When it says
+   the config is out of date, press **Not now**: don't update it, start fresh or start the node.
+
+5. **In the LEZ Wallet**, choose **Create a new wallet**, then **Localhost** for the network
+   (`http://127.0.0.1:3040`, the devnet's sequencer), set a password and keep the recovery phrase.
+   Uplink creates your points account in it when you join.
+
+6. **Join in Uplink.** The Blockchain app asks you to approve, showing node 1 as **Your node**; then
+   Uplink shows *Joining…* until the registration settles.
+
+**After `just devnet reset`**, the chain, the program and every account are new, so:
+
+- redo steps 1 and 2 (the keystore went with `devnet/state`);
+- run Uplink with a new `--user-dir`;
+- make the LEZ Wallet forget its wallet. It remembers where the wallet is in its own settings, not
+  under `--user-dir`, so a new `--user-dir` alone reopens the old wallet, whose accounts were on the
+  old chain. On macOS, with Basecamp closed: `defaults delete com.Logos.ExecutionZoneWalletUI`
+  (`defaults domains | tr , '\n' | grep -i logos` lists the name if it differs). Then do step 5 again.
+
+The Blockchain app needs nothing: the config path is the same; restart it so it reads the new keystore.
+
+`just devnet dashboard` shows the result: node 1 under **Uplink registry** once it's registered, and in
+**Blend membership by epoch** for the epochs it earns points in. A node that misses an epoch's activity
+message is left out of that epoch's membership and earns nothing for it.
 
 ### The node's key and auto-claim
 
