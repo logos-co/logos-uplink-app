@@ -115,6 +115,15 @@ UplinkBackend::UplinkBackend(QObject* parent)
             service->configure({});
         // mock:history_<code>: claimable() reports 3 epochs missing with that code. 0 points for
         // history_missing, so its UI test sees the banner without "At least N points".
+        // mock:already_joined_later: no wallet, then (10 s on) one already joined, as when it's
+        // restored in the LEZ Wallet app while Uplink is open.
+        if (issue == QLatin1String("already_joined_later")) {
+            service->setWalletOpen(false);
+            QTimer::singleShot(10000, this, [mock = service.get()] {
+                mock->seedJoined(MockNodeService::nodeId(), kIdentityLabel);
+                mock->setWalletOpen(true);
+            });
+        }
         if (issue.startsWith(QLatin1String("history_")))
             service->setHistoryGap({issue, 3, issue == QLatin1String("history_missing") ? QStringLiteral("0")
                                                                                         : QStringLiteral("4")});

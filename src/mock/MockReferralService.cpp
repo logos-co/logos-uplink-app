@@ -361,6 +361,16 @@ Result<QList<Receipt>> MockReferralService::receiptsWithSecret(const QString& pa
     return Result<QList<Receipt>>::success(account.receipts);
 }
 
+void MockReferralService::seedJoined(const QString& node, const QString& label)
+{
+    const QString id = nextId("participant");
+    m_accounts.insert(id, Account{});
+    m_walletAccounts << id;
+    m_labels.insert(label, id);
+    Operation registration{Kind::Register, id, node};
+    settle(registration);
+}
+
 void MockReferralService::forgetReceipts()
 {
     for (auto it = m_accounts.cbegin(); it != m_accounts.cend(); ++it)

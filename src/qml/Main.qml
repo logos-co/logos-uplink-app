@@ -261,7 +261,8 @@ Rectangle {
         }
 
         function onAccountFoundAgainChanged() {
-            if (d.backend.accountFoundAgain)
+            // Onboarding says so itself, on its Done step.
+            if (d.backend.accountFoundAgain && pages.currentIndex !== d.onboardingPage)
                 d.showFoundAgain()
         }
 

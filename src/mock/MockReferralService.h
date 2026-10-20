@@ -76,6 +76,9 @@ public:
     // knows none of the cash-outs made so far until they're found with the receipt secret. Ones
     // made after this are known.
     void forgetReceipts();
+    // A points account already registered with `node`, labelled, in the open wallet: one
+    // restored in the LEZ Wallet app.
+    void seedJoined(const QString& node, const QString& label);
 
     // A node that is already registered, so its invitations import cleanly.
     static QString inviterNode();

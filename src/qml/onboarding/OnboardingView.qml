@@ -45,6 +45,7 @@ ColumnLayout {
     function begin() {
         termsStep.reset()
         d.awaitingTerms = false
+        d.recovered = false
         d.stepIndex = 0
     }
 
@@ -59,15 +60,21 @@ ColumnLayout {
     onErrorChanged: if (root.error !== "") d.awaitingTerms = false
 
     onEnrolStateChanged: {
-        // Joined now, or found already joined (a restored wallet): either way, done.
-        if (root.enrolState === UplinkUi.Enrolled && d.step !== "done")
-            d.stepIndex = d.steps.indexOf("done")
+        const before = d.lastEnrolState
+        d.lastEnrolState = root.enrolState
+        if (root.enrolState !== UplinkUi.Enrolled || d.step === "done")
+            return
+        d.recovered = !(d.step === "join" && (before === UplinkUi.EnrolSent || before === UplinkUi.Enrolling))
+        d.stepIndex = d.steps.indexOf("done")
     }
 
     spacing: Theme.spacing.large
 
     QtObject {
         id: d
+
+        property int lastEnrolState: UplinkUi.NoIdentity
+        property bool recovered: false
 
         property int stepIndex: 0
         property bool awaitingTerms: false
@@ -98,7 +105,7 @@ ColumnLayout {
             case "terms": return qsTr("Read and accept the program terms.")
             case "ready": return qsTr("Your node needs to be running, and your LEZ wallet open to keep your points.")
             case "join":  return qsTr("Join under the person who invited you, or start your own tree.")
-            case "done":  return qsTr("You’re in.")
+            case "done":  return d.recovered ? qsTr("Welcome back.") : qsTr("You’re in.")
             }
             return ""
         }
@@ -275,6 +282,7 @@ ColumnLayout {
         }
 
         DoneStep {
+            recovered: d.recovered
             referrerNode: root.referrerNode
             accountLabel: root.accountLabel
             accountAddress: root.accountAddress
