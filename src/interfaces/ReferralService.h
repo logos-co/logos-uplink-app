@@ -166,6 +166,9 @@ public:
     // but its process is still listening.
     virtual bool walletReachable() { return true; }
     virtual Result<QString> resolveLabel(const QString& label) = 0;   // "" if no account has it
+    virtual Result<QStringList> privateAccounts() = 0;
+    // false if the label is already another account's.
+    virtual Result<bool> labelAccount(const QString& label, const QString& account) = 0;
     virtual Result<QString> accountAddress(const QString& account) = 0;  // base58, as the wallet shows it
     virtual Result<qint64> lastSyncedBlock() = 0;
     virtual Result<qint64> currentBlockHeight() = 0;

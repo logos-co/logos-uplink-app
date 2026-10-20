@@ -3,6 +3,7 @@
 
 #include <logos_test.h>
 
+#include <QCoreApplication>
 #include <QTemporaryDir>
 #include <memory>
 
@@ -46,6 +47,8 @@ public:
     Result<bool> walletOpen() override { return m->walletOpen(); }
     bool walletReachable() override { return reachable; }
     Result<QString> resolveLabel(const QString& l) override { return m->resolveLabel(l); }
+    Result<QStringList> privateAccounts() override { return m->privateAccounts(); }
+    Result<bool> labelAccount(const QString& l, const QString& a) override { return m->labelAccount(l, a); }
     Result<QString> accountAddress(const QString& a) override { return m->accountAddress(a); }
     Result<qint64> lastSyncedBlock() override { return m->lastSyncedBlock(); }
     Result<qint64> currentBlockHeight() override { return m->currentBlockHeight(); }
@@ -119,6 +122,16 @@ struct Harness {
         backend->enrol();
         backend->refresh();   // the registration settles
         return backend->enrolState() == B::Enrolled;
+    }
+
+    // Lets the wallet sync catch up (it runs in chunks on the event loop), then polls.
+    void sync()
+    {
+        backend->refresh();
+        for (int i = 0; i < 10000 && backend->syncedBlock() < backend->chainHeight(); ++i)
+            QCoreApplication::processEvents();
+        QCoreApplication::processEvents();   // the last chunk ends the sync on the next pass
+        backend->refresh();
     }
 
     // Collect then cash out, one refresh (poll) per transaction.
@@ -447,6 +460,51 @@ LOGOS_TEST(backend_drops_the_old_account_when_the_wallet_is_switched) {
     LOGOS_ASSERT_NE(h.backend->participantId(), first);
     h.backend->refresh();
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));   // the new one sticks
+}
+
+LOGOS_TEST(backend_finds_its_points_account_in_a_restored_wallet) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    const QString account = h.backend->participantId();
+    h.lez->restoreWallet();
+    h.start();   // Uplink opened again, on the restored wallet
+    LOGOS_ASSERT_EQ(h.backend->participantId(), QString());
+    LOGOS_ASSERT_TRUE(h.backend->nodeRegistered());
+    LOGOS_ASSERT_TRUE(h.backend->findingAccount());   // until the wallet has synced
+    h.sync();
+    LOGOS_ASSERT_EQ(h.backend->participantId(), account);
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+    LOGOS_ASSERT_FALSE(h.backend->findingAccount());
+    LOGOS_ASSERT_EQ(h.lez->resolveLabel("Uplink points account").value, account);   // labelled again
+}
+
+LOGOS_TEST(backend_keeps_a_found_account_whose_label_is_taken) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    const QString account = h.backend->participantId();
+    h.lez->restoreWallet();
+    h.lez->createParticipant("Uplink points account");   // joined again before Uplink could tell
+    h.start();
+    h.sync();
+    LOGOS_ASSERT_EQ(h.backend->participantId(), account);
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->participantId(), account);
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+}
+
+LOGOS_TEST(backend_says_when_the_node_joined_from_another_wallet) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    h.lez->switchWallet();
+    h.sync();
+    LOGOS_ASSERT_TRUE(h.backend->nodeRegistered());
+    LOGOS_ASSERT_FALSE(h.backend->findingAccount());
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::NoIdentity));
+    h.backend->createIdentity();
+    h.backend->enrol();
+    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("already joined"));
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));
 }
 
 // ---- Activity -------------------------------------------------------------------------

@@ -133,6 +133,11 @@ class UplinkUi
     PROP(int chainHeight READONLY)
 
     PROP(int enrolState READONLY)
+    // Your node is registered. Until enrolState is Enrolled, that's with a points account Uplink
+    // hasn't found in this wallet: findingAccount while it looks (a wallet restored from its
+    // recovery phrase has its accounts back, but not their labels), then it's another wallet's.
+    PROP(bool nodeRegistered READONLY)
+    PROP(bool findingAccount READONLY)
     PROP(QString participantId READONLY)
     PROP(QString identityLabel READONLY)      // the identity account's name in the LEZ Wallet app
     PROP(QString identityAddress READONLY)    // base58, as the LEZ Wallet app shows it

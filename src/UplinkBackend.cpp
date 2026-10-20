@@ -272,6 +272,12 @@ void UplinkBackend::refreshWallet()
     const auto labelled = m_referral->resolveLabel(kIdentityLabel);
     if (!labelled.ok() || labelled.value.compare(participantId(), Qt::CaseInsensitive) == 0)
         return;
+    // Found by searching, but the label was another account's: kept while the wallet has it.
+    if (!m_found.isEmpty() && participantId() == m_found) {
+        const auto accounts = m_referral->privateAccounts();
+        if (accounts.ok() && accounts.value.contains(m_found, Qt::CaseInsensitive))
+            return;
+    }
     forgetIdentity();
     if (labelled.value.isEmpty())
         return;
@@ -316,6 +322,54 @@ void UplinkBackend::acceptTerms()
         return;
     }
     setTermsAccepted(accepted.value);
+}
+
+bool UplinkBackend::joining() const
+{
+    return enrolState() == Invited || enrolState() == AwaitingSignature || enrolState() == Enrolling
+        || enrolState() == EnrolSent;
+}
+
+// The node is registered, but not with the labelled account: a wallet restored from its
+// recovery phrase has its accounts back without their labels. Looks for the wallet's private
+// account registered with this node, labels it again, and makes it the points account.
+bool UplinkBackend::findOwnAccount()
+{
+    // A restored wallet finds its accounts' state by syncing.
+    if (m_syncing || syncedBlock() < chainHeight()) {
+        setFindingAccount(true);
+        return false;
+    }
+    const auto accounts = m_referral->privateAccounts();
+    if (!accounts.ok())
+        return false;
+    const QString searched = nodeId().toLower() + QLatin1Char('/') + accounts.value.join(QLatin1Char(','));
+    if (searched != m_searched) {
+        m_searched = searched;
+        m_found.clear();
+        for (const QString& account : accounts.value) {
+            const auto p = m_referral->participant(account);
+            if (p.ok() && p.value.node.compare(nodeId(), Qt::CaseInsensitive) == 0) {
+                m_found = account;
+                break;
+            }
+        }
+    }
+    setFindingAccount(false);
+    if (m_found.isEmpty())
+        return false;
+    if (participantId() != m_found) {
+        const auto labelled = m_referral->labelAccount(kIdentityLabel, m_found);
+        if (!labelled.ok() || !labelled.value)
+            qWarning() << "Uplink: found this node's points account, but its label is another account's;"
+                       << "using it without one";
+        qInfo() << "Uplink: found this node's points account in the wallet";
+        forgetIdentity();
+        setParticipantId(m_found);
+        setEnrolState(IdentityCreated);
+        showIdentity();
+    }
+    return true;
 }
 
 // Everything tied to the points account, as if none had been found.
@@ -426,11 +480,17 @@ void UplinkBackend::refreshReferral()
     setEpoch(static_cast<int>(registry.value.epoch));
     setActiveCount(registry.value.active.size());
 
-    if (participantId().isEmpty())
-        return;
-    const auto participant = m_referral->participant(participantId());
+    const bool registered = !nodeId().isEmpty()
+        && registry.value.nodes.contains(nodeId(), Qt::CaseInsensitive);
+    setNodeRegistered(registered);
+    auto participant = participantId().isEmpty()
+        ? Result<referral::Participant>::failure(QStringLiteral("no points account"))
+        : m_referral->participant(participantId());
+    if (!participant.ok() && registered && !joining() && findOwnAccount())
+        participant = m_referral->participant(participantId());
     if (!participant.ok())
         return;   // not registered yet
+    setFindingAccount(false);
     const referral::Participant& p = participant.value;
     if (enrolState() == EnrolSent)
         qInfo() << "Uplink: joined; the registration settled";
@@ -695,6 +755,10 @@ void UplinkBackend::enrol()
     }
     if (!termsAccepted()) {
         fail(QStringLiteral("Accept the program terms first."));
+        return;
+    }
+    if (nodeRegistered()) {
+        fail(QStringLiteral("This node has already joined, with a points account that isn't in this wallet."));
         return;
     }
     const auto program = m_referral->programAccount();

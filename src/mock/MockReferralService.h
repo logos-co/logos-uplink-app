@@ -51,6 +51,8 @@ public:
     Result<referral::Status> status(const QString& reference) override;
     Result<bool> walletOpen() override;
     Result<QString> resolveLabel(const QString& label) override;
+    Result<QStringList> privateAccounts() override;
+    Result<bool> labelAccount(const QString& label, const QString& account) override;
     Result<QString> accountAddress(const QString& account) override;
     Result<qint64> lastSyncedBlock() override;
     Result<qint64> currentBlockHeight() override;
@@ -62,8 +64,10 @@ public:
 
     // What the LEZ Wallet app does to the wallet Uplink sees.
     void setWalletOpen(bool open) { m_walletOpen = open; }
-    // Another wallet: none of the labels the last one had. The program's state stays.
-    void switchWallet() { m_labels.clear(); }
+    // Another wallet: none of the accounts or labels the last one had. The program's state stays.
+    void switchWallet() { m_labels.clear(); m_walletAccounts.clear(); }
+    // The same wallet restored from its recovery phrase: its accounts are back, its labels aren't.
+    void restoreWallet() { m_labels.clear(); }
 
     // A node that is already registered, so its invitations import cleanly.
     static QString inviterNode();
@@ -106,6 +110,7 @@ private:
     QString m_program;
     qint64 m_syncedBlock = 0;
     QMap<QString, QString> m_labels;   // label -> account
+    QStringList m_walletAccounts;      // the open wallet's private accounts
     quint64 m_counter = 0;
     QElapsedTimer m_clock;
     qint64 m_epochsPublished = 0;
