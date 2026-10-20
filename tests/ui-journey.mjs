@@ -220,4 +220,15 @@ test("cash-outs: a past cash-out's code can be got again, and it's the same code
   await click(app, "uplink.claimDoneButton");
 });
 
+// Cash-outs Basecamp doesn't know of (its data reset) are found with the receipt secret;
+// here every one is known already, so none are new.
+test("cash-outs: finding earlier ones asks the node app, and reports what it found", async (app) => {
+  await click(app, "uplink.cashedOut");
+  await waitProp(app, "uplink.CashOutsDialog", "opened", is(true));
+  await click(app, "uplink.findCashOutsButton");
+  await waitProp(app, "uplink.findCashOutsResult", "visible", is(true));
+  await waitProp(app, "uplink.findCashOutsResult", "text", is("No others found."));
+  await app.expectTexts(["Cash-out 1"]);
+});
+
 run();

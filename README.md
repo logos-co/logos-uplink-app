@@ -185,13 +185,20 @@ asks through Basecamp's intents, and passes the answer to uplink_module, which c
 | Step | Intent | The Blockchain app answers | Uplink then |
 |---|---|---|---|
 | Join | `node.sign_referral_enrolment` (`program`, `participant_account`, `referrer`) | the node's signature over the enrolment | `enrol_with_signature` |
-| Cash out | `node.referral_receipt_secret` | the node's receipt secret | `cash_out_with_secret` |
+| Cash out | `node.referral_receipt_secret` | the node's receipt secret | `receipts_with_secret` (earlier cash-outs this Basecamp doesn't know of), then `cash_out_with_secret` |
+| Find earlier cash-outs | `node.referral_receipt_secret` | the node's receipt secret | `receipts_with_secret` |
 | Payout code | `node.sign_referral_payout` (`program_account`, `blinding_factor`) | the node's signature over the receipt's opening | `payout_code_with_signature` |
 
 The Blockchain app fills in its own node and names it in its answer; an answer for another node
 than the one running is refused, and declining puts the step back where it was. Auto-claim (on by
 default, chosen on the last onboarding step, changeable in About → Settings) collects whenever
 something is claimable; it needs no key. It lives in Uplink's `uplink.ini`.
+
+Uplink's module remembers each cash-out it makes. After Basecamp's data is reset (a new computer,
+a fresh install, cleared data) it knows none of the earlier ones, and their payout codes are out of
+reach until they're found on chain with the receipt secret: from **Find earlier cash-outs** in the
+past cash-outs dialog (the overview's **Past cash-outs** opens it when none are known), or on the
+next cash-out.
 
 ### Invitation codes
 

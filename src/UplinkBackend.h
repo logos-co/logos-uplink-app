@@ -47,6 +47,7 @@ public slots:
     void cashOutAll() override;
     void payoutCodeFor(int receiptIndex) override;
     void finishCashOut() override;
+    void findPastCashOuts() override;
     void setReferralLabel(QString node, QString label) override;
 
 private:
@@ -73,6 +74,9 @@ private:
     void preparePayoutCode(quint64 receiptIndex);
     void prepareNewReceiptCode();
     void failCashOut(const QString& error);
+    void showReceipts(const QList<referral::Receipt>& receipts);
+    void finishFindingCashOuts(const QString& receiptSecret);
+    void stopFindingCashOuts(const QString& error);
     void askNodeApp(const QString& intent, const QVariantMap& params);
     void finishEnrol(const QString& node, const QString& signature);
     void giveUpEnrol();
@@ -95,6 +99,7 @@ private:
     QString m_registerReference;
     QString m_collectReference;                      // a claim behind a cash out
     QString m_cashOutReference;
+    bool m_findingCashOuts = false;                  // the receipt secret asked for is to find, not to cash out
     QSet<quint64> m_receiptsBefore;                  // receipts that existed before m_cashOutReference
     QMap<QString, QString> m_labels;                 // node -> label
     QString m_labelsOwner;                           // participant whose labels are loaded

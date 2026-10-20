@@ -170,6 +170,17 @@ class UplinkUi
     PROP(QString cashedOutPoints READONLY)    // every receipt so far
     PROP(QVariantList receipts READONLY)      // [{index, account, points}], oldest first
     PROP(int cashOutState READONLY)
+    // Finding cash-outs this Basecamp doesn't know of (made before its data was lost or on
+    // another computer): the node app is asked for the receipt secret (SearchAwaitingKey), then
+    // they're looked up on chain (SearchDone, receiptsFound of them new here).
+    ENUM ReceiptSearch {
+        SearchIdle        = 0,
+        SearchAwaitingKey = 1,
+        SearchDone        = 2
+    }
+    PROP(int receiptSearch READONLY)
+    PROP(int receiptsFound READONLY)
+    PROP(bool accountFoundAgain READONLY)
     PROP(QString cashOutError READONLY)       // why the last cash-out stopped; "" from the next start
     PROP(QString payoutCode READONLY)         // for the payout form, once CashOutDone
     PROP(QString payoutPoints READONLY)       // what that code is for
@@ -187,6 +198,7 @@ class UplinkUi
     SLOT(void enrol())
     SLOT(void cashOutAll())
     SLOT(void payoutCodeFor(int receiptIndex))   // the code for a past receipt
+    SLOT(void findPastCashOuts())
     SLOT(void finishCashOut())               // back to idle once the code is copied
     SLOT(void setReferralLabel(QString node, QString label))
 }

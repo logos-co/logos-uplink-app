@@ -43,6 +43,7 @@ void LezReferralService::claimAsync(const QString&, const QString&, Done<Status>
 void LezReferralService::autoClaimAsync(const QString&, Done<QString> done) { done(absent<QString>()); }
 void LezReferralService::cashOutWithSecretAsync(const QString&, const QString&, const QString&, Done<Status> done) { done(absent<Status>()); }
 Result<QList<Receipt>> LezReferralService::receipts(const QString&) { return absent<QList<Receipt>>(); }
+Result<QList<Receipt>> LezReferralService::receiptsWithSecret(const QString&, const QString&) { return absent<QList<Receipt>>(); }
 Result<PayoutMessage> LezReferralService::payoutMessage(const QString&, quint64) { return absent<PayoutMessage>(); }
 Result<QString> LezReferralService::payoutCodeWithSignature(const QString&, quint64, const QString&) { return absent<QString>(); }
 Result<Status> LezReferralService::status(const QString&) { return absent<Status>(); }

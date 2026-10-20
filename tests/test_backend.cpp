@@ -4,6 +4,7 @@
 #include <logos_test.h>
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QTemporaryDir>
 #include <memory>
 
@@ -41,6 +42,7 @@ public:
     Result<QString> autoClaim(const QString& p) override { return m->autoClaim(p); }
     Result<Status> cashOutWithSecret(const QString& r, const QString& p, const QString& sec) override { return m->cashOutWithSecret(r, p, sec); }
     Result<QList<Receipt>> receipts(const QString& p) override { return m->receipts(p); }
+    Result<QList<Receipt>> receiptsWithSecret(const QString& p, const QString& s) override { return m->receiptsWithSecret(p, s); }
     Result<PayoutMessage> payoutMessage(const QString& p, quint64 i) override { return m->payoutMessage(p, i); }
     Result<QString> payoutCodeWithSignature(const QString& p, quint64 i, const QString& sig) override { return m->payoutCodeWithSignature(p, i, sig); }
     Result<Status> status(const QString& r) override { return m->status(r); }
@@ -124,6 +126,15 @@ struct Harness {
         backend->enrol();
         backend->refresh();   // the registration settles
         return backend->enrolState() == B::Enrolled;
+    }
+
+    // Basecamp's data reset: Uplink's own file goes, and the module knows none of the cash-outs.
+    void resetBasecampData()
+    {
+        QDir dir(data.path());
+        for (const QString& file : dir.entryList(QDir::Files))
+            dir.remove(file);
+        lez->forgetReceipts();
     }
 
     // Lets the wallet sync catch up (it runs in chunks on the event loop), then polls.
@@ -410,6 +421,7 @@ LOGOS_TEST(backend_cashes_out_with_the_node_apps_receipt_key_and_signature) {
     h.backend->refresh();   // the claim settles: the receipt key is asked for
     LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::AwaitingReceiptKey));
     LOGOS_ASSERT_EQ(h.backend->signRequest().value("intent").toString(), QString("node.referral_receipt_secret"));
+    LOGOS_ASSERT_FALSE(h.backend->signRequest().value("params").toMap().contains("purpose"));   // worded as a cash-out
     h.approve();
     LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashingOut));
     h.backend->refresh();   // the cash-out settles: the code's signature is asked for
@@ -511,6 +523,34 @@ LOGOS_TEST(backend_keeps_a_found_account_whose_label_is_taken) {
     h.backend->refresh();
     LOGOS_ASSERT_EQ(h.backend->participantId(), account);
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+}
+
+// Without the node's ID (no UPLINK_NODE_ID on a devnet), Uplink couldn't tell the node was
+// registered, so it never searched: it offered Join, made a new labelled account, and the
+// program refused it. The wallet's registered account is found anyway.
+LOGOS_TEST(backend_finds_its_points_account_without_knowing_the_node) {
+    Harness h(node::Issue::NodeIdUnavailable);
+    LOGOS_ASSERT_EQ(h.backend->nodeId(), QString());
+    LOGOS_ASSERT_TRUE(h.enrol());
+    const QString account = h.backend->participantId();
+    h.lez->restoreWallet();
+    h.lez->createParticipant("Uplink points account");   // what Join made meanwhile
+    h.start(node::Issue::NodeIdUnavailable);
+    h.sync();
+    LOGOS_ASSERT_EQ(h.backend->participantId(), account);
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+}
+
+LOGOS_TEST(backend_explains_a_node_that_joined_from_another_wallet_when_it_cant_tell_beforehand) {
+    Harness h(node::Issue::NodeIdUnavailable);
+    LOGOS_ASSERT_TRUE(h.enrol());
+    h.lez->switchWallet();   // a wallet without the account
+    h.start(node::Issue::NodeIdUnavailable);
+    h.sync();
+    h.backend->createIdentity();
+    h.backend->enrol();
+    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("isn't in this wallet"));
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));
 }
 
 LOGOS_TEST(backend_says_when_the_node_joined_from_another_wallet) {
@@ -675,6 +715,99 @@ LOGOS_TEST(backend_keeps_background_errors_out_of_the_cash_out) {
     h.backend->refresh();
     LOGOS_ASSERT_EQ(h.backend->lastError(), QString("uplink_module did not answer"));
     LOGOS_ASSERT_EQ(h.backend->cashOutError(), QString());
+}
+
+// ---- Cash-outs this Basecamp doesn't know of --------------------------------------------
+// Basecamp's data reset (another computer, a fresh install, cleared data): the module knows
+// none of the earlier cash-outs, so their payout codes were out of reach.
+
+namespace {
+// One epoch of points, collected and cashed out.
+void cashOutOnce(Harness& h)
+{
+    h.lez->advanceEpoch();
+    h.backend->refresh();
+    h.backend->refresh();
+    h.backend->cashOutAll();
+    h.backend->refresh();
+    h.backend->finishCashOut();
+}
+} // namespace
+
+LOGOS_TEST(backend_finds_cash_outs_this_basecamp_does_not_know) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    cashOutOnce(h);
+    LOGOS_ASSERT_EQ(h.backend->receipts().size(), 1);
+    h.resetBasecampData();
+    h.start();
+    LOGOS_ASSERT_EQ(h.backend->receipts().size(), 0);
+    LOGOS_ASSERT_EQ(h.backend->cashedOutPoints(), QString("0"));
+    h.backend->payoutCodeFor(0);   // its code is out of reach
+    LOGOS_ASSERT_EQ(h.backend->payoutCode(), QString());
+    LOGOS_ASSERT_NE(h.backend->cashOutError(), QString());
+
+    h.backend->findPastCashOuts();
+    LOGOS_ASSERT_EQ(h.backend->receiptSearch(), int(B::SearchDone));
+    LOGOS_ASSERT_EQ(h.backend->receiptsFound(), 1);
+    LOGOS_ASSERT_EQ(h.backend->receipts().size(), 1);
+    LOGOS_ASSERT_EQ(h.backend->cashedOutPoints(), QString("3"));
+    LOGOS_ASSERT_EQ(h.backend->cashOutError(), QString());
+    h.backend->payoutCodeFor(0);
+    LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashOutDone));
+    LOGOS_ASSERT_NE(h.backend->payoutCode(), QString());
+}
+
+LOGOS_TEST(backend_finds_no_cash_outs_when_the_node_app_declines) {
+    Harness h(node::Issue::None, NodeApp::Manual);
+    h.backend->acceptTerms();
+    h.backend->createIdentity();
+    h.backend->enrol();
+    h.approve();
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+    h.backend->findPastCashOuts();
+    LOGOS_ASSERT_EQ(h.backend->receiptSearch(), int(B::SearchAwaitingKey));
+    LOGOS_ASSERT_EQ(h.backend->signRequest().value("intent").toString(), QString("node.referral_receipt_secret"));
+    // The node app words the request by its purpose; a cash-out's has none.
+    LOGOS_ASSERT_EQ(h.backend->signRequest().value("params").toMap().value("purpose").toString(), QString("find_cash_outs"));
+    h.backend->reportSignFailed(h.backend->signRequest().value("ref").toString(), "cancelled");
+    LOGOS_ASSERT_EQ(h.backend->receiptSearch(), int(B::SearchIdle));
+    LOGOS_ASSERT_TRUE(h.backend->cashOutError().contains("declined"));
+    LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashOutIdle));
+}
+
+// The secret a cash-out is approved with finds the earlier ones too, at no extra prompt; the
+// receipt it makes is still told from them (not left for the user to pick).
+LOGOS_TEST(backend_cashing_out_finds_the_earlier_cash_outs_too) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    cashOutOnce(h);
+    h.resetBasecampData();
+    h.start();
+    h.lez->advanceEpoch();
+    h.backend->refresh();
+    h.backend->refresh();
+    h.backend->cashOutAll();
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashOutDone));
+    LOGOS_ASSERT_EQ(h.backend->receipts().size(), 2);
+    LOGOS_ASSERT_EQ(h.backend->payoutPoints(), h.backend->receipts().last().toMap().value("points").toString());
+}
+
+// Found by searching the wallet (its label gone), not by its label: QML says so briefly.
+LOGOS_TEST(backend_says_when_the_points_account_was_found_again) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    LOGOS_ASSERT_FALSE(h.backend->accountFoundAgain());   // found by its label: nothing to say
+    h.lez->restoreWallet();
+    h.start();
+    h.sync();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+    LOGOS_ASSERT_TRUE(h.backend->accountFoundAgain());
+    h.start();   // labelled again by then: found by its label
+    h.sync();
+    LOGOS_ASSERT_FALSE(h.backend->accountFoundAgain());
 }
 
 LOGOS_TEST(backend_cashes_out_what_auto_claim_already_collected) {
