@@ -30,7 +30,7 @@ Result<QString> LezReferralService::importInvitation(const QString&, const QStri
 Result<Registry> LezReferralService::registry() { return absent<Registry>(); }
 Result<Activity> LezReferralService::activity(const QStringList&, int) { return absent<Activity>(); }
 Result<QList<Note>> LezReferralService::notes(const QString&) { return absent<QList<Note>>(); }
-Result<QString> LezReferralService::claimable(const QString&) { return absent<QString>(); }
+Result<Claimable> LezReferralService::claimable(const QString&) { return absent<Claimable>(); }
 Result<Terms> LezReferralService::terms() { return absent<Terms>(); }
 Result<bool> LezReferralService::termsAccepted() { return absent<bool>(); }
 Result<bool> LezReferralService::acceptTerms(int, const QString&) { return absent<bool>(); }

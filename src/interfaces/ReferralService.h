@@ -38,6 +38,17 @@ struct Note {
     QString amount = QStringLiteral("0");  // Credit
 };
 
+struct HistoryGap {
+    QString code;
+    int missingEpochs = 0;
+    QString pointsWaiting = QStringLiteral("0");
+};
+
+struct Claimable {
+    QString points = QStringLiteral("0");
+    HistoryGap history;
+};
+
 struct Receipt {
     quint64 index = 0;
     QString account;                  // the public cash-out receipt
@@ -105,7 +116,7 @@ public:
     virtual Result<Registry> registry() = 0;
     virtual Result<Activity> activity(const QStringList& nodes, int count) = 0;
     virtual Result<QList<Note>> notes(const QString& participant) = 0;
-    virtual Result<QString> claimable(const QString& participant) = 0;
+    virtual Result<Claimable> claimable(const QString& participant) = 0;
 
     virtual Result<Terms> terms() = 0;
     virtual Result<bool> termsAccepted() = 0;

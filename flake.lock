@@ -5896,11 +5896,11 @@
         "rust-overlay": "rust-overlay_9"
       },
       "locked": {
-        "lastModified": 1791893057,
-        "narHash": "sha256-8LT3fpxLhViBLvdpu5VR9KiayevQLh6z4NnhufeRk0A=",
+        "lastModified": 1792175050,
+        "narHash": "sha256-lc7YecyaGnZgbgfE1LOR0yFpiORYAanZMIsbvKzLPac=",
         "owner": "logos-co",
         "repo": "logos-module-builder",
-        "rev": "43e80f1fd67881ba212883e791b48f79af86e750",
+        "rev": "a0de2d347c8b7c3a1e6ff12f6861edf0f3f716d0",
         "type": "github"
       },
       "original": {
@@ -30124,11 +30124,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1792438525,
-        "narHash": "sha256-Ec6bN/xM9Jzsnzu1IaFb/pO4N5C+acNNaNhWEAq0Ysk=",
+        "lastModified": 1792500303,
+        "narHash": "sha256-nUrL0EO6lNrqPfCy0rqsuc+bCUDTNB7xqG5wrvudRwc=",
         "owner": "logos-blockchain",
         "repo": "uplink-module",
-        "rev": "8257494609d0643ae6e0afc2c23891a871588e79",
+        "rev": "eb2f9cf5da4208b6d6369315f417fdeca4f08bce",
         "type": "github"
       },
       "original": {

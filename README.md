@@ -151,7 +151,14 @@ sync with its nodes.
    (`http://127.0.0.1:3040`, the devnet's sequencer), set a password and keep the recovery phrase.
    Uplink creates your points account in it when you join.
 
-6. **Join in Uplink.** The Blockchain app asks you to approve, showing node 1 as **Your node**; then
+6. **For claim history, start the LEZ indexer** in the LEZ Explorer app (Uplink's banner opens it),
+   pointed at the devnet: Bedrock address `http://127.0.0.1:18080` and channel
+   `0101010101010101010101010101010101010101010101010101010101010101`. Its settings are kept
+   outside `--user-dir`, so one left on another chain carries over; reset its storage after
+   changing them. Without it, epochs from before Uplink was running can't be claimed, and the
+   overview says so.
+
+7. **Join in Uplink.** The Blockchain app asks you to approve, showing node 1 as **Your node**; then
    Uplink shows *Joining…* until the registration settles.
 
 **After `just devnet reset`**, the chain, the program and every account are new, so:

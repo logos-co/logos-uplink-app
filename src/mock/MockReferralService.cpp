@@ -232,14 +232,15 @@ Result<QList<Note>> MockReferralService::notes(const QString& participant)
     return Result<QList<Note>>::success(notesFor(account.state.node));
 }
 
-Result<QString> MockReferralService::claimable(const QString& participant)
+Result<Claimable> MockReferralService::claimable(const QString& participant)
 {
     const Account account = m_accounts.value(participant);
     if (!account.registered)
-        return notRegistered<QString>();
+        return notRegistered<Claimable>();
     registry();
     Participant copy = account.state;
-    return Result<QString>::success(QString::number(applyClaim(copy, m_registry.epoch, m_activeHistory, notesFor(copy.node))));
+    return Result<Claimable>::success(
+        {QString::number(applyClaim(copy, m_registry.epoch, m_activeHistory, notesFor(copy.node))), m_historyGap});
 }
 
 Result<Terms> MockReferralService::terms()
@@ -311,7 +312,7 @@ Result<Status> MockReferralService::claim(const QString& reference, const QStrin
 {
     if (!m_accounts.value(participant).registered)
         return notRegistered<Status>();
-    if (!m_operations.contains(reference) && claimable(participant).value == QLatin1String("0"))
+    if (!m_operations.contains(reference) && claimable(participant).value.points == QLatin1String("0"))
         return Result<Status>::failure(QStringLiteral("nothing to claim"));
     return record(reference, {Kind::Claim, participant, {}});
 }
@@ -320,7 +321,7 @@ Result<QString> MockReferralService::autoClaim(const QString& participant)
 {
     if (!m_accounts.value(participant).registered)
         return notRegistered<QString>();
-    if (hasOpen(participant) || claimable(participant).value == QLatin1String("0"))
+    if (hasOpen(participant) || claimable(participant).value.points == QLatin1String("0"))
         return Result<QString>::success({});
     const QString reference = QString::fromLatin1(hash("auto-claim" + nextId("claim").toLatin1()).toHex());
     const auto recorded = claim(reference, participant);

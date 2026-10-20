@@ -85,6 +85,21 @@ inline Result<referral::Status> operationCheck(const QString& json)
     return Result<referral::Status>::success(referral::Status::Pending);
 }
 
+// The points claimable now, and the published epochs that aren't counted yet.
+inline Result<referral::Claimable> claimable(const QString& json)
+{
+    const auto r = reply(json);
+    if (!r.ok())
+        return Result<referral::Claimable>::failure(r.error);
+    referral::Claimable c;
+    c.points = r.value.value(QStringLiteral("points")).toString(QStringLiteral("0"));
+    const QJsonObject history = r.value.value(QStringLiteral("history")).toObject();
+    c.history.code = history.value(QStringLiteral("code")).toString();
+    c.history.missingEpochs = history.value(QStringLiteral("missingEpochs")).toArray().size();
+    c.history.pointsWaiting = history.value(QStringLiteral("pointsWaiting")).toString(QStringLiteral("0"));
+    return Result<referral::Claimable>::success(c);
+}
+
 inline QStringList strings(const QJsonValue& v)
 {
     QStringList out;

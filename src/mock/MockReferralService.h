@@ -34,7 +34,7 @@ public:
     Result<referral::Registry> registry() override;
     Result<referral::Activity> activity(const QStringList& nodes, int count) override;
     Result<QList<referral::Note>> notes(const QString& participant) override;
-    Result<QString> claimable(const QString& participant) override;
+    Result<referral::Claimable> claimable(const QString& participant) override;
     Result<referral::Terms> terms() override;
     Result<bool> termsAccepted() override;
     Result<bool> acceptTerms(int version, const QString& sha256) override;
@@ -61,6 +61,9 @@ public:
     // The oracle publishes the next epoch. Child i is active unless (epoch + i) % 3 == 0;
     // every even epoch each participant gets 1 point of Credit from deeper in its tree.
     void advanceEpoch();
+
+    // Earlier epochs the module couldn't count (no indexer, or one still catching up).
+    void setHistoryGap(referral::HistoryGap gap) { m_historyGap = std::move(gap); }
 
     // What the LEZ Wallet app does to the wallet Uplink sees.
     void setWalletOpen(bool open) { m_walletOpen = open; }
@@ -111,6 +114,7 @@ private:
     qint64 m_syncedBlock = 0;
     QMap<QString, QString> m_labels;   // label -> account
     QStringList m_walletAccounts;      // the open wallet's private accounts
+    referral::HistoryGap m_historyGap;
     quint64 m_counter = 0;
     QElapsedTimer m_clock;
     qint64 m_epochsPublished = 0;
