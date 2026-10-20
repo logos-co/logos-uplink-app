@@ -156,6 +156,7 @@ class UplinkUi
     PROP(QString cashedOutPoints READONLY)    // every receipt so far
     PROP(QVariantList receipts READONLY)      // [{index, account, points}], oldest first
     PROP(int cashOutState READONLY)
+    PROP(QString cashOutError READONLY)       // why the last cash-out stopped; "" from the next start
     PROP(QString payoutCode READONLY)         // for the payout form, once CashOutDone
     PROP(QString payoutPoints READONLY)       // what that code is for
     PROP(QString payoutFormUrl READONLY)      // where the user pastes the code

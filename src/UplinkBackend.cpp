@@ -906,12 +906,13 @@ void UplinkBackend::cashOutAll()
     setLastError({});
     if (enrolState() != Enrolled || cashOutState() != CashOutIdle)
         return;
+    setCashOutError({});
     if (points::isZero(claimablePoints()) && points::isZero(rewardBalance())) {
-        fail(QStringLiteral("No points to cash out yet."));
+        failCashOut(QStringLiteral("No points to cash out yet."));
         return;
     }
     if (m_sending) {
-        fail(QStringLiteral("A collection is still being sent. Try again in a moment."));
+        failCashOut(QStringLiteral("A collection is still being sent. Try again in a moment."));
         return;
     }
     // An auto-claim still settling becomes this cash-out's collect step: it moves on when it lands.
@@ -1000,6 +1001,7 @@ void UplinkBackend::payoutCodeFor(int receiptIndex)
     if (cashOutState() != CashOutIdle && cashOutState() != CashOutDone)
         return;
     setLastError({});
+    setCashOutError({});
     setPayoutCode({});
     preparePayoutCode(quint64(receiptIndex));
 }
@@ -1035,6 +1037,7 @@ void UplinkBackend::preparePayoutCode(quint64 receiptIndex)
 
 void UplinkBackend::failCashOut(const QString& error)
 {
+    setCashOutError(error);
     m_collectReference.clear();
     m_cashOutReference.clear();
     m_receiptsBefore.clear();

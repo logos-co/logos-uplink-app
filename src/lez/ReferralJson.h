@@ -71,6 +71,20 @@ inline Result<referral::Status> operationStatus(const QString& json)
     return Result<referral::Status>::success(referral::Status::Pending);
 }
 
+// A status check: as operationStatus, except that a check that couldn't be made (uplink_module
+// or lez_core didn't answer in time) leaves the operation pending, to be checked again. Only
+// the module not knowing the reference ends it.
+inline Result<referral::Status> operationCheck(const QString& json)
+{
+    const auto r = reply(json);
+    if (r.ok())
+        return operationStatus(json);
+    const QString code = QJsonDocument::fromJson(json.toUtf8()).object().value(QStringLiteral("code")).toString();
+    if (code == QLatin1String("unknown_reference"))
+        return Result<referral::Status>::failure(r.error);
+    return Result<referral::Status>::success(referral::Status::Pending);
+}
+
 inline QStringList strings(const QJsonValue& v)
 {
     QStringList out;

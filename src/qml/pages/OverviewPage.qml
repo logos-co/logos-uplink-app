@@ -30,7 +30,7 @@ Item {
     property int cashOutState: UplinkUi.CashOutIdle
     property string payoutCode: ""
     property string payoutPoints: ""
-    property string error: ""
+    property string cashOutError: ""
     property string payoutFormUrl: ""
     property var termsSections: []
     property bool autoClaim: true
@@ -474,7 +474,7 @@ Item {
         cashOutState: root.cashOutState
         payoutCode: root.payoutCode
         payoutPoints: root.payoutPoints
-        error: root.error
+        error: root.cashOutError
         formUrl: root.payoutFormUrl
         onCashOutRequested: root.cashOutRequested()
         onInviteRequested: inviteDialog.open()

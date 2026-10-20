@@ -186,7 +186,7 @@ Rectangle {
             cashOutState: d.backend ? d.backend.cashOutState : UplinkUi.CashOutIdle
             payoutCode: d.backend ? d.backend.payoutCode : ""
             payoutPoints: d.backend ? d.backend.payoutPoints : ""
-            error: d.backend ? d.backend.lastError : ""
+            cashOutError: d.backend ? d.backend.cashOutError : ""
             payoutFormUrl: d.backend ? d.backend.payoutFormUrl : ""
             termsSections: d.backend ? d.backend.termsSections : []
             autoClaim: d.backend ? d.backend.autoClaim : true

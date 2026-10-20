@@ -2,6 +2,8 @@
 
 #include "lez/ReferralJson.h"
 
+#include <QDebug>
+
 #include "logos_api.h"
 #include "logos_api_client.h"
 #include "logos_sdk.h"
@@ -193,7 +195,11 @@ Result<QString> LezReferralService::payoutCodeWithSignature(const QString& parti
 Result<Status> LezReferralService::status(const QString& reference)
 {
     REFERRAL(Status, status(reference));
-    return referral_json::operationStatus(json);
+    const auto checked = referral_json::operationCheck(json);
+    const auto replied = referral_json::reply(json);
+    if (checked.ok() && !replied.ok())
+        qWarning() << "Uplink: couldn't check operation" << reference << "(" << replied.error << "); trying again";
+    return checked;
 }
 
 #undef REFERRAL
@@ -238,13 +244,29 @@ void LezReferralService::cashOutWithSecretAsync(const QString& reference, const 
 
 // ---- lez_core: the wallet ----------------------------------------------------------
 
+namespace {
+
+// A call that got no answer returns an empty value, which reads as "no wallet" or "no
+// account": lez_core holds the wallet's lock through long calls, so a timeout means busy.
+template <typename T>
+Result<T> unanswered(const logos::CallError& err)
+{
+    return Result<T>::failure(QStringLiteral("lez_core did not answer: %1").arg(QString::fromStdString(err.message)));
+}
+
+} // namespace
+
 // lez_core has no "is a wallet open" call. It answers get_sequencer_addr with ""
 // exactly when it holds no wallet; an open wallet always has a sequencer URL.
 Result<bool> LezReferralService::walletOpen()
 {
     if (!connected("lez_core"))
         return notConnected<bool>("lez_core");
-    return Result<bool>::success(!m_context.modules().lez_core.get_sequencer_addr().isEmpty());
+    logos::CallError err;
+    const QString sequencer = m_context.modules().lez_core.get_sequencer_addr(&err);
+    if (!err.ok())
+        return unanswered<bool>(err);
+    return Result<bool>::success(!sequencer.isEmpty());
 }
 
 bool LezReferralService::walletReachable()
@@ -257,7 +279,10 @@ Result<QString> LezReferralService::resolveLabel(const QString& label)
 {
     if (!m_context.isContextReady())
         return notConnected<QString>("lez_core");
-    const QString resolved = m_context.modules().lez_core.resolve_label(label);
+    logos::CallError err;
+    const QString resolved = m_context.modules().lez_core.resolve_label(label, &err);
+    if (!err.ok())
+        return unanswered<QString>(err);
     return Result<QString>::success(resolved.section('/', 1));
 }
 
@@ -265,8 +290,12 @@ Result<QStringList> LezReferralService::privateAccounts()
 {
     if (!m_context.isContextReady())
         return notConnected<QStringList>("lez_core");
+    logos::CallError err;
+    const QVariantList entries = m_context.modules().lez_core.list_accounts(&err);
+    if (!err.ok())
+        return unanswered<QStringList>(err);
     QStringList accounts;
-    for (const QVariant& v : m_context.modules().lez_core.list_accounts()) {
+    for (const QVariant& v : entries) {
         const QVariantMap entry = v.toMap();
         if (!entry.value(QStringLiteral("is_public"), true).toBool())
             accounts << entry.value(QStringLiteral("account_id")).toString();
@@ -279,16 +308,24 @@ Result<bool> LezReferralService::labelAccount(const QString& label, const QStrin
 {
     if (!m_context.isContextReady())
         return notConnected<bool>("lez_core");
-    m_context.modules().lez_core.add_label(label, account, true);
-    const QString labelled = m_context.modules().lez_core.resolve_label(label).section('/', 1);
-    return Result<bool>::success(labelled.compare(account, Qt::CaseInsensitive) == 0);
+    logos::CallError err;
+    m_context.modules().lez_core.add_label(label, account, true, &err);
+    if (!err.ok())
+        return unanswered<bool>(err);
+    const auto labelled = resolveLabel(label);
+    if (!labelled.ok())
+        return Result<bool>::failure(labelled.error);
+    return Result<bool>::success(labelled.value.compare(account, Qt::CaseInsensitive) == 0);
 }
 
 Result<QString> LezReferralService::accountAddress(const QString& account)
 {
     if (!m_context.isContextReady())
         return notConnected<QString>("lez_core");
-    const QString address = m_context.modules().lez_core.account_id_to_base58(account);
+    logos::CallError err;
+    const QString address = m_context.modules().lez_core.account_id_to_base58(account, &err);
+    if (!err.ok())
+        return unanswered<QString>(err);
     if (address.isEmpty())
         return Result<QString>::failure(QStringLiteral("lez_core could not encode the account"));
     return Result<QString>::success(address);
@@ -298,21 +335,32 @@ Result<qint64> LezReferralService::lastSyncedBlock()
 {
     if (!m_context.isContextReady())
         return notConnected<qint64>("lez_core");
-    return Result<qint64>::success(m_context.modules().lez_core.get_last_synced_block());
+    logos::CallError err;
+    const qint64 block = m_context.modules().lez_core.get_last_synced_block(&err);
+    if (!err.ok())
+        return unanswered<qint64>(err);
+    return Result<qint64>::success(block);
 }
 
 Result<qint64> LezReferralService::currentBlockHeight()
 {
     if (!m_context.isContextReady())
         return notConnected<qint64>("lez_core");
-    return Result<qint64>::success(m_context.modules().lez_core.get_current_block_height());
+    logos::CallError err;
+    const qint64 height = m_context.modules().lez_core.get_current_block_height(&err);
+    if (!err.ok())
+        return unanswered<qint64>(err);
+    return Result<qint64>::success(height);
 }
 
 Result<bool> LezReferralService::syncToBlock(qint64 block)
 {
     if (!m_context.isContextReady())
         return notConnected<bool>("lez_core");
-    const auto error = m_context.modules().lez_core.sync_to_block(block);
+    logos::CallError err;
+    const auto error = m_context.modules().lez_core.sync_to_block(block, &err);
+    if (!err.ok())
+        return unanswered<bool>(err);
     if (error != 0)
         return Result<bool>::failure(QStringLiteral("Wallet sync failed (wallet FFI error %1).").arg(error));
     return Result<bool>::success(true);
