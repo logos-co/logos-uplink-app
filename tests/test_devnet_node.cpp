@@ -46,3 +46,22 @@ LOGOS_TEST(a_bootstrapping_or_silent_devnet_node_is_not_running_yet) {
     LOGOS_ASSERT_TRUE(silent.issue == Issue::NotRunning);
     LOGOS_ASSERT_EQ(silent.detail, QString("No answer"));
 }
+
+// ---- The node's id, from blockchain_module's read_accounts ----------------------------------
+
+LOGOS_TEST(the_node_id_is_the_blend_signing_account_of_read_accounts) {
+    const QJsonObject accounts = QJsonDocument::fromJson(R"({"accounts":[
+        {"public_key":"AA11","title":"Mining","roles":["leader_funding","sdp_funding"]},
+        {"public_key":"389B3E50","title":"Blend","roles":["blend_signing"]}],
+        "keystore_keys":[]})").object();
+    LOGOS_ASSERT_EQ(node::blendSigningKey(accounts), QString("389b3e50"));
+    LOGOS_ASSERT_EQ(node::blendSigningKey(QJsonObject()), QString());
+}
+
+// The id is the node's whether or not it's a Blend core node: one that never declared kept none.
+LOGOS_TEST(a_node_that_is_not_blend_core_still_has_its_id) {
+    node::Status s;
+    node::applyBlend(s, QJsonDocument::fromJson(kNotCore).object(), QStringLiteral("389b3e50"));
+    LOGOS_ASSERT_TRUE(s.issue == Issue::NotCore);
+    LOGOS_ASSERT_EQ(s.nodeId, QString("389b3e50"));
+}

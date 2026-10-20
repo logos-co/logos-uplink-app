@@ -56,8 +56,12 @@ node::Status BlockchainNodeService::status()
         s.detail = blend.error.toString();
         return s;
     }
-    // The provider_id waits on logos-blockchain-module#108.
-    node::applyBlend(s, jsonObject(blend.value), {});
+    // The node's id, from the config it was started with (read_accounts with no path).
+    QString nodeId;
+    const LogosResult accounts = logos.blockchain_module.read_accounts(QString());
+    if (accounts.success)
+        nodeId = node::blendSigningKey(jsonObject(accounts.value));
+    node::applyBlend(s, jsonObject(blend.value), nodeId);
     return s;
 }
 
