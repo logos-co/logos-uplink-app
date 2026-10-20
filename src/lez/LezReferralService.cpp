@@ -247,6 +247,11 @@ Result<bool> LezReferralService::walletOpen()
     return Result<bool>::success(!m_context.modules().lez_core.get_sequencer_addr().isEmpty());
 }
 
+bool LezReferralService::walletReachable()
+{
+    return connected("lez_core");
+}
+
 // resolve_label answers "Private/<hex>" or "Public/<hex>", or "" when no account has the label.
 Result<QString> LezReferralService::resolveLabel(const QString& label)
 {

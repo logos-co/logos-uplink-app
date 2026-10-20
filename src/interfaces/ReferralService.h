@@ -162,6 +162,9 @@ public:
     // The wallet itself belongs to the LEZ Wallet app; Uplink only checks it is open,
     // finds its points account by label, and keeps it synced so notes are found.
     virtual Result<bool> walletOpen() = 0;
+    // Whether lez_core is still there, without calling it: while it proves it answers nothing,
+    // but its process is still listening.
+    virtual bool walletReachable() { return true; }
     virtual Result<QString> resolveLabel(const QString& label) = 0;   // "" if no account has it
     virtual Result<QString> accountAddress(const QString& account) = 0;  // base58, as the wallet shows it
     virtual Result<qint64> lastSyncedBlock() = 0;

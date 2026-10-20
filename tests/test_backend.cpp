@@ -44,11 +44,33 @@ public:
     Result<QString> payoutCodeWithSignature(const QString& p, quint64 i, const QString& sig) override { return m->payoutCodeWithSignature(p, i, sig); }
     Result<Status> status(const QString& r) override { return m->status(r); }
     Result<bool> walletOpen() override { return m->walletOpen(); }
+    bool walletReachable() override { return reachable; }
     Result<QString> resolveLabel(const QString& l) override { return m->resolveLabel(l); }
     Result<QString> accountAddress(const QString& a) override { return m->accountAddress(a); }
     Result<qint64> lastSyncedBlock() override { return m->lastSyncedBlock(); }
     Result<qint64> currentBlockHeight() override { return m->currentBlockHeight(); }
     Result<bool> syncToBlock(qint64 b) override { return m->syncToBlock(b); }
+
+    // With holdSends, a registration stays in flight (proving) until finishSend().
+    void enrolWithSignatureAsync(const QString& r, const QString& p, const QString& n, const QString& sig,
+                                 Done<Status> done) override
+    {
+        if (!holdSends)
+            return ReferralService::enrolWithSignatureAsync(r, p, n, sig, std::move(done));
+        held = [this, r, p, n, sig, done = std::move(done)](bool sent) {
+            done(sent ? m->enrolWithSignature(r, p, n, sig) : Result<Status>::failure("lez_core is not connected"));
+        };
+    }
+    void finishSend(bool sent = true)
+    {
+        auto send = std::move(held);
+        held = nullptr;
+        send(sent);
+    }
+
+    bool reachable = true;
+    bool holdSends = false;
+    std::function<void(bool sent)> held;
 
 private:
     std::shared_ptr<MockReferralService> m;
@@ -74,7 +96,9 @@ struct Harness {
         UplinkBackend::NodeApp nodeApp;
         if (app == NodeApp::Answers)
             nodeApp = &MockNodeService::answerRequest;
-        backend = std::make_unique<UplinkBackend>(std::make_unique<SharedReferral>(lez),
+        auto shared = std::make_unique<SharedReferral>(lez);
+        referral = shared.get();
+        backend = std::make_unique<UplinkBackend>(std::move(shared),
                                                   std::make_unique<MockNodeService>(issue), data.path(),
                                                   std::move(nodeApp));
         backend->refresh();
@@ -107,6 +131,7 @@ struct Harness {
 
     QTemporaryDir data;
     std::shared_ptr<MockReferralService> lez;
+    SharedReferral* referral = nullptr;   // owned by backend
     NodeApp app;
     std::unique_ptr<UplinkBackend> backend;
 };
@@ -190,7 +215,7 @@ LOGOS_TEST(backend_joins_under_an_invitation) {
     h.backend->joinUnder(code);
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Invited));
     h.backend->enrol();
-    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolling));
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::EnrolSent));
     h.backend->refresh();
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
     LOGOS_ASSERT_EQ(h.backend->referrerNode(), MockReferralService::inviterNode());
@@ -248,9 +273,53 @@ LOGOS_TEST(backend_asks_the_node_app_to_sign_the_enrolment) {
     LOGOS_ASSERT_EQ(params.value("referrer").toString(), QString());
     h.approve();
     LOGOS_ASSERT_EQ(h.backend->signRequest().size(), 0);
-    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolling));
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::EnrolSent));
     h.backend->refresh();
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+}
+
+LOGOS_TEST(backend_reports_each_stage_of_joining) {
+    Harness h(node::Issue::None, NodeApp::Manual);
+    h.referral->holdSends = true;
+    h.backend->acceptTerms();
+    h.backend->createIdentity();
+    h.backend->enrol();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));
+    h.approve();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolling));
+    h.backend->refresh();   // still proving
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolling));
+    h.referral->finishSend();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::EnrolSent));
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+    LOGOS_ASSERT_EQ(h.backend->lastError(), QString());
+}
+
+LOGOS_TEST(backend_gives_up_joining_when_the_wallet_stops_while_proving) {
+    Harness h(node::Issue::None, NodeApp::Manual);
+    h.referral->holdSends = true;
+    h.backend->acceptTerms();
+    h.backend->createIdentity();
+    h.backend->enrol();
+    h.approve();
+    h.referral->reachable = false;
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));
+    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("LEZ wallet stopped"));
+
+    // The module hasn't answered yet, so another attempt would queue behind it.
+    h.referral->reachable = true;
+    h.backend->enrol();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));
+    LOGOS_ASSERT_TRUE(h.backend->lastError().contains("still waiting"));
+
+    // Its late answer changes nothing; then joining works again.
+    h.referral->holdSends = false;
+    h.referral->finishSend(false);
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));
+    h.backend->enrol();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));
 }
 
 LOGOS_TEST(backend_goes_back_when_the_node_app_declines) {
@@ -278,7 +347,7 @@ LOGOS_TEST(backend_ignores_an_answer_for_an_older_request) {
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::AwaitingSignature));
     LOGOS_ASSERT_EQ(h.backend->lastError(), QString());
     h.approve();
-    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolling));
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::EnrolSent));
 }
 
 LOGOS_TEST(backend_refuses_an_answer_for_another_node) {

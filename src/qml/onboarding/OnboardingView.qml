@@ -75,6 +75,7 @@ ColumnLayout {
         readonly property bool busy: root.creatingAccount
                                      || root.enrolState === UplinkUi.Invited
                                      || root.enrolState === UplinkUi.Enrolling
+                                     || root.enrolState === UplinkUi.EnrolSent
                                      || root.enrolState === UplinkUi.AwaitingSignature
 
         readonly property string phase: {
@@ -83,7 +84,8 @@ ColumnLayout {
             switch (root.enrolState) {
             case UplinkUi.Invited: return qsTr("Importing invitation…")
             case UplinkUi.AwaitingSignature: return qsTr("Approve in the Blockchain app…")
-            case UplinkUi.Enrolling: return qsTr("Joining…")
+            case UplinkUi.Enrolling:
+            case UplinkUi.EnrolSent: return qsTr("Joining…")
             }
             return ""
         }
@@ -261,6 +263,7 @@ ColumnLayout {
             id: joinStep
 
             invitationCheck: root.invitationCheck
+            enrolState: root.enrolState
             busy: d.busy
             error: root.error
             onInvitationEdited: function (text) { root.invitationEdited(text) }
