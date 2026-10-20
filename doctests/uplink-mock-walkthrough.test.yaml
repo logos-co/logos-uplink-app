@@ -211,9 +211,12 @@ sections:
                 Joining is signed with the node's key. Uplink never has it: it asks
                 the Blockchain app, which shows what it would sign and signs only
                 when you approve. Here the mock node app approves at once.
+            # "UPLINK POINTS ACCOUNT" alone isn't enough: the Done step is built (hidden) from the
+            # start and shows the account as soon as it exists, before the join lands. Its
+            # subtitle reads "You’re in." only once Done is the current step.
             - name: "The join lands"
               action: wait_for
-              texts: ["UPLINK POINTS ACCOUNT"]
+              texts: ["You’re in.", "UPLINK POINTS ACCOUNT"]
               timeout: 30000
               text: |
                 Joining creates a points account in the LEZ wallet, has the node
@@ -231,6 +234,12 @@ sections:
               action: click_object
               find_by: "objectName"
               find_value: "uplink.onboardingAdvanceButton"
+            - name: "The overview opens"
+              action: expect_property
+              find_by: "objectName"
+              find_value: "uplink.OverviewPage"
+              property: "visible"
+              value: true
             - name: "The overview: no points yet"
               action: wait_for
               texts: ["0 points", "Claim rewards", "Invite peer"]
