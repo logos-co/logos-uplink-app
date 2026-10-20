@@ -86,3 +86,13 @@ LOGOS_TEST(registry_activity_notes_receipts_and_terms_read_through) {
     LOGOS_ASSERT_TRUE(check.value.registered);
     LOGOS_ASSERT_EQ(referral_json::field(R"({"ok":true,"participant":"p1","created":true})", "participant").value, QString("p1"));
 }
+
+LOGOS_TEST(a_payout_message_names_the_values_the_node_app_signs) {
+    const auto m = referral_json::payoutMessage(
+        R"({"ok":true,"message":"{\"blinding_factor\":\"bf\",\"node\":\"nd\",\"program_account\":\"pa\"}","receipt":"rc","points":"7"})");
+    LOGOS_ASSERT_TRUE(m.ok());
+    LOGOS_ASSERT_EQ(m.value.programAccount, QString("pa"));
+    LOGOS_ASSERT_EQ(m.value.blindingFactor, QString("bf"));
+    LOGOS_ASSERT_EQ(m.value.points, QString("7"));
+    LOGOS_ASSERT_FALSE(referral_json::payoutMessage(R"({"ok":true,"message":"not json"})").ok());
+}

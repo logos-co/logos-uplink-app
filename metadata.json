@@ -22,6 +22,7 @@
   "uses": [
     {"intent": "node.sign_referral_enrolment", "cardinality": "single"},
     {"intent": "node.sign_referral_payout", "cardinality": "single"},
+    {"intent": "node.referral_receipt_secret", "cardinality": "single"},
     {"intent": "basecamp.apps.launch", "cardinality": "single"}
   ],
   "codegen": {

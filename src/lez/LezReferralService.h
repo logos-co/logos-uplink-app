@@ -25,22 +25,23 @@ public:
     Result<referral::Terms> terms() override;
     Result<bool> termsAccepted() override;
     Result<bool> acceptTerms(int version, const QString& sha256) override;
-    Result<QString> keystoreNode(const QString& keystorePath) override;
-    Result<referral::Status> enrol(const QString& reference, const QString& participant,
-                                   const QString& keystorePath, const QString& node) override;
+    Result<referral::Status> enrolWithSignature(const QString& reference, const QString& participant,
+                                                const QString& node, const QString& signature) override;
     Result<referral::Status> claim(const QString& reference, const QString& participant) override;
     Result<QString> autoClaim(const QString& participant) override;
-    Result<referral::Status> cashOut(const QString& reference, const QString& participant,
-                                     const QString& keystorePath) override;
-    Result<QList<referral::Receipt>> receipts(const QString& participant, const QString& keystorePath) override;
-    Result<QString> payoutCode(const QString& participant, quint64 index, const QString& keystorePath) override;
+    Result<referral::Status> cashOutWithSecret(const QString& reference, const QString& participant,
+                                               const QString& receiptSecret) override;
+    Result<QList<referral::Receipt>> receipts(const QString& participant) override;
+    Result<referral::PayoutMessage> payoutMessage(const QString& participant, quint64 index) override;
+    Result<QString> payoutCodeWithSignature(const QString& participant, quint64 index,
+                                            const QString& signature) override;
     Result<referral::Status> status(const QString& reference) override;
-    void enrolAsync(const QString& reference, const QString& participant, const QString& keystorePath,
-                    const QString& node, Done<referral::Status> done) override;
+    void enrolWithSignatureAsync(const QString& reference, const QString& participant, const QString& node,
+                                 const QString& signature, Done<referral::Status> done) override;
     void claimAsync(const QString& reference, const QString& participant, Done<referral::Status> done) override;
     void autoClaimAsync(const QString& participant, Done<QString> done) override;
-    void cashOutAsync(const QString& reference, const QString& participant, const QString& keystorePath,
-                      Done<referral::Status> done) override;
+    void cashOutWithSecretAsync(const QString& reference, const QString& participant, const QString& receiptSecret,
+                                Done<referral::Status> done) override;
 
     Result<bool> walletOpen() override;
     Result<QString> resolveLabel(const QString& label) override;

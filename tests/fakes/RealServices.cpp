@@ -34,17 +34,17 @@ Result<QString> LezReferralService::claimable(const QString&) { return absent<QS
 Result<Terms> LezReferralService::terms() { return absent<Terms>(); }
 Result<bool> LezReferralService::termsAccepted() { return absent<bool>(); }
 Result<bool> LezReferralService::acceptTerms(int, const QString&) { return absent<bool>(); }
-Result<QString> LezReferralService::keystoreNode(const QString&) { return absent<QString>(); }
-Result<Status> LezReferralService::enrol(const QString&, const QString&, const QString&, const QString&) { return absent<Status>(); }
+Result<Status> LezReferralService::enrolWithSignature(const QString&, const QString&, const QString&, const QString&) { return absent<Status>(); }
 Result<Status> LezReferralService::claim(const QString&, const QString&) { return absent<Status>(); }
 Result<QString> LezReferralService::autoClaim(const QString&) { return absent<QString>(); }
-Result<Status> LezReferralService::cashOut(const QString&, const QString&, const QString&) { return absent<Status>(); }
-void LezReferralService::enrolAsync(const QString&, const QString&, const QString&, const QString&, Done<Status> done) { done(absent<Status>()); }
+Result<Status> LezReferralService::cashOutWithSecret(const QString&, const QString&, const QString&) { return absent<Status>(); }
+void LezReferralService::enrolWithSignatureAsync(const QString&, const QString&, const QString&, const QString&, Done<Status> done) { done(absent<Status>()); }
 void LezReferralService::claimAsync(const QString&, const QString&, Done<Status> done) { done(absent<Status>()); }
 void LezReferralService::autoClaimAsync(const QString&, Done<QString> done) { done(absent<QString>()); }
-void LezReferralService::cashOutAsync(const QString&, const QString&, const QString&, Done<Status> done) { done(absent<Status>()); }
-Result<QList<Receipt>> LezReferralService::receipts(const QString&, const QString&) { return absent<QList<Receipt>>(); }
-Result<QString> LezReferralService::payoutCode(const QString&, quint64, const QString&) { return absent<QString>(); }
+void LezReferralService::cashOutWithSecretAsync(const QString&, const QString&, const QString&, Done<Status> done) { done(absent<Status>()); }
+Result<QList<Receipt>> LezReferralService::receipts(const QString&) { return absent<QList<Receipt>>(); }
+Result<PayoutMessage> LezReferralService::payoutMessage(const QString&, quint64) { return absent<PayoutMessage>(); }
+Result<QString> LezReferralService::payoutCodeWithSignature(const QString&, quint64, const QString&) { return absent<QString>(); }
 Result<Status> LezReferralService::status(const QString&) { return absent<Status>(); }
 Result<bool> LezReferralService::walletOpen() { return absent<bool>(); }
 Result<QString> LezReferralService::resolveLabel(const QString&) { return absent<QString>(); }

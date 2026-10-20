@@ -18,12 +18,9 @@ LogosScrollView {
 
     property string referrerNode: ""   // "" = joined as a root
     property bool autoClaim: true
-    property int keystoreIssue: UplinkUi.KeystoreNotChosen
-    property string keystorePath: ""
 
     signal readTermsRequested()
     signal autoClaimToggled(bool on)
-    signal chooseKeystoreRequested()
 
     Item {
         width: root.availableWidth
@@ -127,28 +124,8 @@ LogosScrollView {
                 }
 
                 Paragraph {
-                    sub: true
-                    text: root.keystorePath !== ""
-                          ? qsTr("Keystore for your Blend key: %1").arg(root.keystorePath)
-                          : qsTr("Keystore for your Blend key: not chosen")
-                }
-                Paragraph {
                     small: true
-                    visible: root.keystoreIssue === UplinkUi.KeystoreWrongNode
-                             || root.keystoreIssue === UplinkUi.KeystoreUnreadable
-                    color: Theme.palette.error
-                    text: root.keystoreIssue === UplinkUi.KeystoreWrongNode
-                          ? qsTr("This file holds a different node’s Blend key than the one running.")
-                          : qsTr("Uplink couldn’t read this file.")
-                }
-                Paragraph {
-                    small: true
-                    text: qsTr("Used only when you join, cash out or get a payout code. Uplink reads only the BlendSigning key from it, for that action, and never stores it.")
-                }
-                TextButton {
-                    objectName: "uplink.settingsChooseKeystoreButton"
-                    text: root.keystorePath !== "" ? qsTr("Change keystore…") : qsTr("Choose keystore.yaml…")
-                    onClicked: root.chooseKeystoreRequested()
+                    text: qsTr("Joining, cashing out and payout codes need your node’s key. It stays in the Blockchain app, which asks you each time; Uplink never sees it.")
                 }
             }
 

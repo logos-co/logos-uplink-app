@@ -34,16 +34,13 @@ Item {
     property string payoutFormUrl: ""
     property var termsSections: []
     property bool autoClaim: true
-    property int keystoreIssue: UplinkUi.KeystoreNotChosen
-    property string keystorePath: ""
     property int programIssue: UplinkUi.ProgramUnknown
     property string programDetail: ""
 
-    // Both use the Blend signing key, so Main.qml confirms the keystore first.
+    // Both need the node's key: the Blockchain app asks the user (Main.qml raises the request).
     signal cashOutRequested()
     signal payoutCodeRequested(int index)
     signal autoClaimToggled(bool on)
-    signal chooseKeystoreRequested()
     signal cashOutFinished()
     signal labelEdited(string node, string label)
 
@@ -336,11 +333,8 @@ Item {
             AboutView {
                 referrerNode: root.referrerNode
                 autoClaim: root.autoClaim
-                keystoreIssue: root.keystoreIssue
-                keystorePath: root.keystorePath
                 onReadTermsRequested: termsDialog.open()
                 onAutoClaimToggled: function (on) { root.autoClaimToggled(on) }
-                onChooseKeystoreRequested: root.chooseKeystoreRequested()
             }
         }
     }

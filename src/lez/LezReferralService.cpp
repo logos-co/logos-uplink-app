@@ -17,9 +17,9 @@ Result<T> notConnected(const char* module)
     return Result<T>::failure(QStringLiteral("%1 is not connected").arg(QLatin1String(module)));
 }
 
-// Proving takes as long as it takes on commodity hardware: wait indefinitely, as the LEZ Wallet
-// app does for private transfers. uplink_module bounds its own wait on lez_core.
-const Timeout kSendTimeout(-1);
+// Proving a private transaction takes minutes without RISC0_DEV_MODE. There is no "wait forever":
+// <= 0 means the 20 s default. 30 min, uplink_module's own bound on lez_core.
+const Timeout kSendTimeout(30 * 60 * 1000);
 
 // The module's reply read by `parse`, or the call's own error (a timeout, the module gone).
 template <typename T>
@@ -144,16 +144,10 @@ Result<bool> LezReferralService::acceptTerms(int version, const QString& sha256)
     return referral_json::flag(json, "accepted");
 }
 
-Result<QString> LezReferralService::keystoreNode(const QString& keystorePath)
+Result<Status> LezReferralService::enrolWithSignature(const QString& reference, const QString& participant,
+                                                      const QString& node, const QString& signature)
 {
-    REFERRAL(QString, keystore_node(keystorePath));
-    return referral_json::field(json, "node");
-}
-
-Result<Status> LezReferralService::enrol(const QString& reference, const QString& participant,
-                                         const QString& keystorePath, const QString& node)
-{
-    REFERRAL(Status, enrol(reference, participant, keystorePath, node));
+    REFERRAL(Status, enrol_with_signature(reference, participant, node, signature));
     return referral_json::operationStatus(json);
 }
 
@@ -169,22 +163,30 @@ Result<QString> LezReferralService::autoClaim(const QString& participant)
     return referral_json::autoClaimReference(json);
 }
 
-Result<Status> LezReferralService::cashOut(const QString& reference, const QString& participant,
-                                           const QString& keystorePath)
+Result<Status> LezReferralService::cashOutWithSecret(const QString& reference, const QString& participant,
+                                                     const QString& receiptSecret)
 {
-    REFERRAL(Status, cash_out(reference, participant, keystorePath));
+    REFERRAL(Status, cash_out_with_secret(reference, participant, receiptSecret));
     return referral_json::operationStatus(json);
 }
 
-Result<QList<Receipt>> LezReferralService::receipts(const QString& participant, const QString& keystorePath)
+// "" for the receipts the module already knows: no key, no secret.
+Result<QList<Receipt>> LezReferralService::receipts(const QString& participant)
 {
-    REFERRAL(QList<Receipt>, receipts(participant, keystorePath));
+    REFERRAL(QList<Receipt>, receipts(participant, QString()));
     return referral_json::receipts(json);
 }
 
-Result<QString> LezReferralService::payoutCode(const QString& participant, quint64 index, const QString& keystorePath)
+Result<PayoutMessage> LezReferralService::payoutMessage(const QString& participant, quint64 index)
 {
-    REFERRAL(QString, payout_code(participant, qint64(index), keystorePath));
+    REFERRAL(PayoutMessage, payout_message(participant, qint64(index), QString()));
+    return referral_json::payoutMessage(json);
+}
+
+Result<QString> LezReferralService::payoutCodeWithSignature(const QString& participant, quint64 index,
+                                                            const QString& signature)
+{
+    REFERRAL(QString, payout_code_with_signature(participant, qint64(index), signature));
     return referral_json::field(json, "code");
 }
 
@@ -196,14 +198,14 @@ Result<Status> LezReferralService::status(const QString& reference)
 
 #undef REFERRAL
 
-void LezReferralService::enrolAsync(const QString& reference, const QString& participant,
-                                    const QString& keystorePath, const QString& node, Done<Status> done)
+void LezReferralService::enrolWithSignatureAsync(const QString& reference, const QString& participant,
+                                                 const QString& node, const QString& signature, Done<Status> done)
 {
     if (!connected("uplink_module"))
         return done(notConnected<Status>("uplink_module"));
-    m_context.modules().uplink_module.enrolAsyncResult(reference, participant, keystorePath, node,
-                                                         replyTo(std::move(done), referral_json::operationStatus),
-                                                         kSendTimeout);
+    m_context.modules().uplink_module.enrol_with_signatureAsyncResult(
+        reference, participant, node, signature, replyTo(std::move(done), referral_json::operationStatus),
+        kSendTimeout);
 }
 
 void LezReferralService::claimAsync(const QString& reference, const QString& participant, Done<Status> done)
@@ -224,14 +226,14 @@ void LezReferralService::autoClaimAsync(const QString& participant, Done<QString
                                                               kSendTimeout);
 }
 
-void LezReferralService::cashOutAsync(const QString& reference, const QString& participant,
-                                      const QString& keystorePath, Done<Status> done)
+void LezReferralService::cashOutWithSecretAsync(const QString& reference, const QString& participant,
+                                                const QString& receiptSecret, Done<Status> done)
 {
     if (!connected("uplink_module"))
         return done(notConnected<Status>("uplink_module"));
-    m_context.modules().uplink_module.cash_outAsyncResult(reference, participant, keystorePath,
-                                                            replyTo(std::move(done), referral_json::operationStatus),
-                                                            kSendTimeout);
+    m_context.modules().uplink_module.cash_out_with_secretAsyncResult(
+        reference, participant, receiptSecret, replyTo(std::move(done), referral_json::operationStatus),
+        kSendTimeout);
 }
 
 // ---- lez_core: the wallet ----------------------------------------------------------
