@@ -29,7 +29,7 @@ public:
     Result<QString> invitation(const QString& p, const QString& n) override { return m->invitation(p, n); }
     Result<InvitationCheck> checkInvitation(const QString& b) override { return m->checkInvitation(b); }
     Result<QString> importInvitation(const QString& p, const QString& b) override { return m->importInvitation(p, b); }
-    Result<Registry> registry() override { return m->registry(); }
+    Result<Registry> registry() override { return registryFails ? Result<Registry>::failure("uplink_module did not answer") : m->registry(); }
     Result<Activity> activity(const QStringList& n, int c) override { return m->activity(n, c); }
     Result<QList<Note>> notes(const QString& p) override { return m->notes(p); }
     Result<QString> claimable(const QString& p) override { return m->claimable(p); }
@@ -44,9 +44,9 @@ public:
     Result<PayoutMessage> payoutMessage(const QString& p, quint64 i) override { return m->payoutMessage(p, i); }
     Result<QString> payoutCodeWithSignature(const QString& p, quint64 i, const QString& sig) override { return m->payoutCodeWithSignature(p, i, sig); }
     Result<Status> status(const QString& r) override { return m->status(r); }
-    Result<bool> walletOpen() override { return m->walletOpen(); }
+    Result<bool> walletOpen() override { return busy ? Result<bool>::failure("lez_core did not answer") : m->walletOpen(); }
     bool walletReachable() override { return reachable; }
-    Result<QString> resolveLabel(const QString& l) override { return m->resolveLabel(l); }
+    Result<QString> resolveLabel(const QString& l) override { return busy ? Result<QString>::failure("lez_core did not answer") : m->resolveLabel(l); }
     Result<QStringList> privateAccounts() override { return m->privateAccounts(); }
     Result<bool> labelAccount(const QString& l, const QString& a) override { return m->labelAccount(l, a); }
     Result<QString> accountAddress(const QString& a) override { return m->accountAddress(a); }
@@ -72,6 +72,8 @@ public:
     }
 
     bool reachable = true;
+    bool busy = false;            // lez_core doesn't answer in time
+    bool registryFails = false;
     bool holdSends = false;
     std::function<void(bool sent)> held;
 
@@ -601,6 +603,31 @@ LOGOS_TEST(backend_cashes_out_into_a_payout_code) {
 
     h.backend->cashOutAll();   // the same epoch: nothing new
     LOGOS_ASSERT_EQ(h.backend->lastError(), QString("No points to cash out yet."));
+    LOGOS_ASSERT_EQ(h.backend->cashOutError(), QString("No points to cash out yet."));
+}
+
+LOGOS_TEST(backend_keeps_the_points_account_while_the_wallet_is_busy) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    const QString account = h.backend->participantId();
+    h.referral->busy = true;
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->walletIssue(), int(B::LezCoreUnavailable));
+    LOGOS_ASSERT_EQ(h.backend->participantId(), account);
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+    h.referral->busy = false;
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->walletIssue(), int(B::WalletReady));
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+}
+
+LOGOS_TEST(backend_keeps_background_errors_out_of_the_cash_out) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    h.referral->registryFails = true;
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->lastError(), QString("uplink_module did not answer"));
+    LOGOS_ASSERT_EQ(h.backend->cashOutError(), QString());
 }
 
 LOGOS_TEST(backend_cashes_out_what_auto_claim_already_collected) {

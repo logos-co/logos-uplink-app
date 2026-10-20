@@ -50,6 +50,21 @@ LOGOS_TEST(operations_map_to_pending_settled_or_their_error) {
     LOGOS_ASSERT_EQ(failed.error, QString("AccountNotFound"));
 }
 
+LOGOS_TEST(a_status_check_that_could_not_be_made_stays_pending) {
+    // lez_core's poll timed out inside the module, or the module didn't answer at all.
+    LOGOS_ASSERT_TRUE(referral_json::operationCheck(
+        R"({"ok":false,"code":"port","error":"lez_core.poll_transaction_status: timed out after 20000ms"})").value
+        == Status::Pending);
+    LOGOS_ASSERT_TRUE(referral_json::operationCheck("").ok());
+    LOGOS_ASSERT_TRUE(referral_json::operationCheck("").value == Status::Pending);
+    // The module answering is still read as before.
+    LOGOS_ASSERT_TRUE(referral_json::operationCheck(R"({"ok":true,"status":"settled"})").value == Status::Settled);
+    LOGOS_ASSERT_EQ(referral_json::operationCheck(R"({"ok":true,"status":"failed","error":"AccountNotFound"})").error,
+                    QString("AccountNotFound"));
+    LOGOS_ASSERT_FALSE(referral_json::operationCheck(
+        R"({"ok":false,"code":"unknown_reference","error":"no operation with this reference"})").ok());
+}
+
 LOGOS_TEST(auto_claim_answers_a_reference_or_nothing) {
     LOGOS_ASSERT_EQ(referral_json::autoClaimReference(R"({"ok":true,"claimed":{"reference":"ab","status":"pending"}})").value,
                     QString("ab"));
