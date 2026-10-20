@@ -343,7 +343,39 @@ Result<Status> MockReferralService::cashOutWithSecret(const QString& reference, 
 
 Result<QList<Receipt>> MockReferralService::receipts(const QString& participant)
 {
-    return Result<QList<Receipt>>::success(m_accounts.value(participant).receipts);
+    QList<Receipt> known;
+    for (const Receipt& r : m_accounts.value(participant).receipts)
+        if (r.index >= m_unknownBelow.value(participant, 0))
+            known << r;
+    return Result<QList<Receipt>>::success(known);
+}
+
+Result<QList<Receipt>> MockReferralService::receiptsWithSecret(const QString& participant, const QString& receiptSecret)
+{
+    const Account account = m_accounts.value(participant);
+    if (!account.registered)
+        return notRegistered<QList<Receipt>>();
+    if (receiptSecret != mock_signing::receiptSecret(account.state.node))
+        return Result<QList<Receipt>>::failure(QStringLiteral("this receipt secret is not the node's"));
+    m_unknownBelow.remove(participant);
+    return Result<QList<Receipt>>::success(account.receipts);
+}
+
+void MockReferralService::seedJoined(const QString& node, const QString& label)
+{
+    const QString id = nextId("participant");
+    m_accounts.insert(id, Account{});
+    m_walletAccounts << id;
+    m_labels.insert(label, id);
+    Operation registration{Kind::Register, id, node};
+    settle(registration);
+}
+
+void MockReferralService::forgetReceipts()
+{
+    for (auto it = m_accounts.cbegin(); it != m_accounts.cend(); ++it)
+        if (!it->receipts.isEmpty())
+            m_unknownBelow.insert(it.key(), it->receipts.size());
 }
 
 namespace {
@@ -366,6 +398,8 @@ Result<PayoutMessage> MockReferralService::payoutMessage(const QString& particip
     const Account account = m_accounts.value(participant);
     if (index >= quint64(account.receipts.size()))
         return Result<PayoutMessage>::failure(QStringLiteral("no receipt with this index"));
+    if (index < m_unknownBelow.value(participant, 0))   // as uplink_module answers receipt_secret_needed
+        return Result<PayoutMessage>::failure(QStringLiteral("this receipt isn't known here; pass the receipt secret"));
     PayoutMessage m;
     m.message = openingOf(participant, index, account.state.node, m_program);
     const QJsonObject opening = QJsonDocument::fromJson(m.message.toUtf8()).object();

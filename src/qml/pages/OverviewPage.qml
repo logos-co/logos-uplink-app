@@ -22,6 +22,8 @@ Item {
     property var receipts: []
     property int nodeIssue: UplinkUi.ModuleUnavailable
     property bool nodeLeftCore: false
+    property int receiptSearch: UplinkUi.SearchIdle
+    property int receiptsFound: 0
     property int historyState: UplinkUi.HistoryComplete
     property int historyMissingEpochs: 0
     property string historyPointsWaiting: "0"
@@ -48,6 +50,7 @@ Item {
     signal cashOutFinished()
     signal labelEdited(string node, string label)
     signal openExplorerRequested()
+    signal findCashOutsRequested()
 
     // The claim dialog, where a payout code got again appears.
     function showClaim() {
@@ -201,6 +204,18 @@ Item {
                     Layout.alignment: Qt.AlignRight
                     visible: root.receipts.length > 0
                     text: qsTr("%1 cashed out so far").arg(root.cashedOut)
+                    labelItem.font.pixelSize: Theme.typography.secondaryText
+                    underline: false   // until hovered
+                    linkColor: Theme.palette.textTertiary
+                    hoverColor: Theme.palette.textSecondary
+                    onActivated: cashOutsDialog.open()
+                }
+                // None known here: the list can still be opened, to find earlier ones.
+                LogosLink {
+                    objectName: "uplink.pastCashOutsLink"
+                    Layout.alignment: Qt.AlignRight
+                    visible: root.receipts.length === 0
+                    text: qsTr("Past cash-outs")
                     labelItem.font.pixelSize: Theme.typography.secondaryText
                     underline: false   // until hovered
                     linkColor: Theme.palette.textTertiary
@@ -545,7 +560,11 @@ Item {
 
         anchors.centerIn: parent
         receipts: root.receipts
+        search: root.receiptSearch
+        found: root.receiptsFound
+        error: root.cashOutError
         onCodeRequested: function (index) { root.payoutCodeRequested(index) }
+        onFindRequested: root.findCashOutsRequested()
     }
 
     // ---- Label dialog -------------------------------------------------------------

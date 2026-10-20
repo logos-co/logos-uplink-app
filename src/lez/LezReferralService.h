@@ -32,6 +32,7 @@ public:
     Result<referral::Status> cashOutWithSecret(const QString& reference, const QString& participant,
                                                const QString& receiptSecret) override;
     Result<QList<referral::Receipt>> receipts(const QString& participant) override;
+    Result<QList<referral::Receipt>> receiptsWithSecret(const QString& participant, const QString& receiptSecret) override;
     Result<referral::PayoutMessage> payoutMessage(const QString& participant, quint64 index) override;
     Result<QString> payoutCodeWithSignature(const QString& participant, quint64 index,
                                             const QString& signature) override;

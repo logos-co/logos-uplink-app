@@ -178,6 +178,12 @@ Result<QList<Receipt>> LezReferralService::receipts(const QString& participant)
     return referral_json::receipts(json);
 }
 
+Result<QList<Receipt>> LezReferralService::receiptsWithSecret(const QString& participant, const QString& receiptSecret)
+{
+    REFERRAL(QList<Receipt>, receipts_with_secret(participant, receiptSecret));
+    return referral_json::receipts(json);
+}
+
 Result<PayoutMessage> LezReferralService::payoutMessage(const QString& participant, quint64 index)
 {
     REFERRAL(PayoutMessage, payout_message(participant, qint64(index), QString()));

@@ -115,6 +115,15 @@ UplinkBackend::UplinkBackend(QObject* parent)
             service->configure({});
         // mock:history_<code>: claimable() reports 3 epochs missing with that code. 0 points for
         // history_missing, so its UI test sees the banner without "At least N points".
+        // mock:already_joined_later: no wallet, then (10 s on) one already joined, as when it's
+        // restored in the LEZ Wallet app while Uplink is open.
+        if (issue == QLatin1String("already_joined_later")) {
+            service->setWalletOpen(false);
+            QTimer::singleShot(10000, this, [mock = service.get()] {
+                mock->seedJoined(MockNodeService::nodeId(), kIdentityLabel);
+                mock->setWalletOpen(true);
+            });
+        }
         if (issue.startsWith(QLatin1String("history_")))
             service->setHistoryGap({issue, 3, issue == QLatin1String("history_missing") ? QStringLiteral("0")
                                                                                         : QStringLiteral("4")});
@@ -347,9 +356,10 @@ bool UplinkBackend::joining() const
         || enrolState() == EnrolSent;
 }
 
-// The node is registered, but not with the labelled account: a wallet restored from its
-// recovery phrase has its accounts back without their labels. Looks for the wallet's private
-// account registered with this node, labels it again, and makes it the points account.
+// The labelled account isn't registered (or there's none), but the wallet may hold one that
+// is: a wallet restored from its recovery phrase has its accounts back without their labels.
+// Looks for the wallet's private account registered (with this node, when its ID is known),
+// labels it again, and makes it the points account.
 bool UplinkBackend::findOwnAccount()
 {
     // A restored wallet finds its accounts' state by syncing.
@@ -364,9 +374,12 @@ bool UplinkBackend::findOwnAccount()
     if (searched != m_searched) {
         m_searched = searched;
         m_found.clear();
+        // Without the node's ID (no UPLINK_NODE_ID on a devnet; logos-blockchain-module#108),
+        // the wallet's registered participant is taken: one whose label went (a restored wallet)
+        // is still the one the user joined with.
         for (const QString& account : accounts.value) {
             const auto p = m_referral->participant(account);
-            if (p.ok() && p.value.node.compare(nodeId(), Qt::CaseInsensitive) == 0) {
+            if (p.ok() && (nodeId().isEmpty() || p.value.node.compare(nodeId(), Qt::CaseInsensitive) == 0)) {
                 m_found = account;
                 break;
             }
@@ -385,6 +398,7 @@ bool UplinkBackend::findOwnAccount()
         setParticipantId(m_found);
         setEnrolState(IdentityCreated);
         showIdentity();
+        setAccountFoundAgain(true);
     }
     return true;
 }
@@ -410,6 +424,10 @@ void UplinkBackend::forgetIdentity()
     setNodeActive(false);
     setMyActivity({});
     setNodeLeftCore(false);
+    m_findingCashOuts = false;
+    setReceiptSearch(SearchIdle);
+    setReceiptsFound(0);
+    setAccountFoundAgain(false);
     setReferrals({});
     setClaimablePoints(QStringLiteral("0"));
     setHistoryState(HistoryComplete);
@@ -508,7 +526,8 @@ void UplinkBackend::refreshReferral()
     auto participant = participantId().isEmpty()
         ? Result<referral::Participant>::failure(QStringLiteral("no points account"))
         : m_referral->participant(participantId());
-    if (!participant.ok() && registered && !joining() && findOwnAccount())
+    // Searched whether or not the node is known to be registered: its ID may be unknown.
+    if (!participant.ok() && !joining() && findOwnAccount())
         participant = m_referral->participant(participantId());
     if (!participant.ok())
         return;   // not registered yet
@@ -596,20 +615,24 @@ void UplinkBackend::refreshReferral()
 
     // The receipts the module already knows: listing them never reads the key.
     const auto cashOuts = m_referral->receipts(participantId());
-    if (cashOuts.ok()) {
-        QString cashedOut = QStringLiteral("0");
-        QVariantList receipts;
-        for (const referral::Receipt& r : cashOuts.value) {
-            cashedOut = points::add(cashedOut, r.points);
-            receipts << QVariantMap{
-                {QStringLiteral("index"), r.index},
-                {QStringLiteral("account"), r.account},
-                {QStringLiteral("points"), points::normalized(r.points)},
-            };
-        }
-        setReceipts(receipts);
-        setCashedOutPoints(cashedOut);
+    if (cashOuts.ok())
+        showReceipts(cashOuts.value);
+}
+
+void UplinkBackend::showReceipts(const QList<referral::Receipt>& receipts)
+{
+    QString cashedOut = QStringLiteral("0");
+    QVariantList list;
+    for (const referral::Receipt& r : receipts) {
+        cashedOut = points::add(cashedOut, r.points);
+        list << QVariantMap{
+            {QStringLiteral("index"), r.index},
+            {QStringLiteral("account"), r.account},
+            {QStringLiteral("points"), points::normalized(r.points)},
+        };
     }
+    setReceipts(list);
+    setCashedOutPoints(cashedOut);
 }
 
 // Referral labels are Uplink's own, one INI section per points account.
@@ -828,7 +851,12 @@ void UplinkBackend::finishEnrol(const QString& node, const QString& signature)
         const qint64 seconds = self->m_enrolClock.elapsed() / 1000;
         if (attempt != self->m_enrolAttempt)
             return;   // given up on; the chain shows it joined if it was sent after all
-        if (!self->track(QStringLiteral("register"), submitted, reference)) {
+        Result<referral::Status> sent = submitted;
+        // The wallet held no registered account (it was searched), so it's another wallet's.
+        if (!sent.ok() && sent.error.contains(QLatin1String("node is already registered")))
+            sent.error = QStringLiteral("This node has already joined, with a points account that isn't in this wallet. "
+                                        "Open the wallet that has it in the LEZ Wallet app.");
+        if (!self->track(QStringLiteral("register"), sent, reference)) {
             qWarning() << "Uplink: the registration wasn't sent, after" << seconds << "s:" << submitted.error;
             self->setEnrolState(before);
             return;
@@ -878,7 +906,9 @@ void UplinkBackend::completeSignRequest(QString requestRef, QVariantMap answer)
         if (intent == QLatin1String("node.sign_referral_enrolment")) {
             setEnrolState(m_enrolBefore);
             fail(wrong);
-        } else
+        } else if (m_findingCashOuts)
+            stopFindingCashOuts(wrong);
+        else
             failCashOut(wrong);
         return;
     }
@@ -887,6 +917,18 @@ void UplinkBackend::completeSignRequest(QString requestRef, QVariantMap answer)
     } else if (intent == QLatin1String("node.referral_receipt_secret")) {
         // Held only for the send; the module keeps a fingerprint of it, never the secret.
         const QString secret = answer.value(QStringLiteral("receipt_secret")).toString();
+        if (m_findingCashOuts) {
+            finishFindingCashOuts(secret);
+            return;
+        }
+        // A cash-out finds any earlier ones this Basecamp doesn't know of too: with the secret at
+        // hand it costs no extra approval, and the receipt this one makes is told from all of them.
+        const auto earlier = m_referral->receiptsWithSecret(participantId(), secret);
+        if (earlier.ok()) {
+            showReceipts(earlier.value);
+            for (const referral::Receipt& r : earlier.value)
+                m_receiptsBefore.insert(r.index);
+        }
         const QString reference = newReference();
         setCashOutState(CashingOut);
         m_sending = true;
@@ -929,7 +971,9 @@ void UplinkBackend::reportSignFailed(QString requestRef, QString error)
     if (intent == QLatin1String("node.sign_referral_enrolment")) {
         setEnrolState(m_enrolBefore);
         fail(QStringLiteral("Not joined: %1").arg(why));
-    } else
+    } else if (m_findingCashOuts)
+        stopFindingCashOuts(QStringLiteral("Not searched: %1").arg(why));
+    else
         failCashOut(QStringLiteral("Not done: %1").arg(why));
 }
 
@@ -1068,6 +1112,41 @@ void UplinkBackend::preparePayoutCode(quint64 receiptIndex)
     askNodeApp(QStringLiteral("node.sign_referral_payout"),
                {{QStringLiteral("program_account"), opening.value.programAccount},
                 {QStringLiteral("blinding_factor"), opening.value.blindingFactor}});
+}
+
+// Cash-outs this Basecamp doesn't know of (its data lost, or made on another computer): the
+// module remembers each one it makes; any other can be found on chain only with the node's
+// receipt secret, which the node app asks the user for.
+void UplinkBackend::findPastCashOuts()
+{
+    if (enrolState() != Enrolled || cashOutState() != CashOutIdle || receiptSearch() == SearchAwaitingKey || m_sending)
+        return;
+    setCashOutError({});
+    setReceiptsFound(0);
+    m_findingCashOuts = true;
+    setReceiptSearch(SearchAwaitingKey);
+    askNodeApp(QStringLiteral("node.referral_receipt_secret"), {{QStringLiteral("purpose"), QStringLiteral("find_cash_outs")}});
+}
+
+void UplinkBackend::finishFindingCashOuts(const QString& receiptSecret)
+{
+    m_findingCashOuts = false;
+    const qsizetype known = receipts().size();
+    const auto found = m_referral->receiptsWithSecret(participantId(), receiptSecret);
+    if (!found.ok()) {
+        stopFindingCashOuts(found.error);
+        return;
+    }
+    showReceipts(found.value);
+    setReceiptsFound(int(qMax<qsizetype>(0, found.value.size() - known)));
+    setReceiptSearch(SearchDone);
+}
+
+void UplinkBackend::stopFindingCashOuts(const QString& error)
+{
+    m_findingCashOuts = false;
+    setReceiptSearch(SearchIdle);
+    setCashOutError(error);
 }
 
 void UplinkBackend::failCashOut(const QString& error)

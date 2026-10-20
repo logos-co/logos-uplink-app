@@ -139,6 +139,10 @@ public:
                                              const QString& receiptSecret) = 0;
     // The receipts already known (no secret needed).
     virtual Result<QList<Receipt>> receipts(const QString& participant) = 0;
+    // Finds the participant's receipts on chain with the node's receipt secret, and keeps them:
+    // cash-outs receipts() doesn't know of, its saved state being gone (another computer, a
+    // fresh Basecamp, cleared data).
+    virtual Result<QList<Receipt>> receiptsWithSecret(const QString& participant, const QString& receiptSecret) = 0;
     // What the node signs for receipt `index`'s payout code, then the code from its signature.
     virtual Result<PayoutMessage> payoutMessage(const QString& participant, quint64 index) = 0;
     virtual Result<QString> payoutCodeWithSignature(const QString& participant, quint64 index,

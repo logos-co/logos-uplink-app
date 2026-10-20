@@ -45,6 +45,7 @@ public:
     Result<referral::Status> cashOutWithSecret(const QString& reference, const QString& participant,
                                                const QString& receiptSecret) override;
     Result<QList<referral::Receipt>> receipts(const QString& participant) override;
+    Result<QList<referral::Receipt>> receiptsWithSecret(const QString& participant, const QString& receiptSecret) override;
     Result<referral::PayoutMessage> payoutMessage(const QString& participant, quint64 index) override;
     Result<QString> payoutCodeWithSignature(const QString& participant, quint64 index,
                                             const QString& signature) override;
@@ -71,6 +72,13 @@ public:
     void switchWallet() { m_labels.clear(); m_walletAccounts.clear(); }
     // The same wallet restored from its recovery phrase: its accounts are back, its labels aren't.
     void restoreWallet() { m_labels.clear(); }
+    // The module's saved state is gone (another computer, a fresh Basecamp, cleared data): it
+    // knows none of the cash-outs made so far until they're found with the receipt secret. Ones
+    // made after this are known.
+    void forgetReceipts();
+    // A points account already registered with `node`, labelled, in the open wallet: one
+    // restored in the LEZ Wallet app.
+    void seedJoined(const QString& node, const QString& label);
 
     // A node that is already registered, so its invitations import cleanly.
     static QString inviterNode();
@@ -115,6 +123,7 @@ private:
     QMap<QString, QString> m_labels;   // label -> account
     QStringList m_walletAccounts;      // the open wallet's private accounts
     referral::HistoryGap m_historyGap;
+    QMap<QString, quint64> m_unknownBelow;   // participant -> receipts below this index aren't known here
     quint64 m_counter = 0;
     QElapsedTimer m_clock;
     qint64 m_epochsPublished = 0;

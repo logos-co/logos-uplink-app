@@ -6,7 +6,8 @@ import Logos.Controls
 
 import "../controls"
 
-// Step 4: shown once, right after joining. Also where auto-claim is chosen (on by default).
+// Step 4: shown once, right after joining, or when the account turns out to have joined
+// already (its wallet restored during onboarding). Also where auto-claim is chosen (on by default).
 StepPage {
     id: root
 
@@ -16,6 +17,7 @@ StepPage {
     property string accountLabel: ""
     property string accountAddress: ""
     property bool autoClaim: true
+    property bool recovered: false   // joined before, not just now
 
     signal autoClaimToggled(bool on)
 
@@ -23,7 +25,9 @@ StepPage {
         Layout.fillWidth: true
         wrapMode: Text.WordWrap
         textFormat: Text.StyledText
-        text: root.referrerNode !== ""
+        text: root.recovered
+              ? qsTr("<b>Your account is back.</b> You’d joined already, so there’s nothing more to do: your points, referrals and invitation are as you left them.")
+              : root.referrerNode !== ""
               ? qsTr("<b>Your position is sealed.</b> You joined under your inviter. It can’t be changed, and nobody, including us, can read who invited you.")
               : qsTr("<b>You’re enrolled as a root.</b> You continued without a referral — invite people to grow your own tree.")
         font.pixelSize: Theme.typography.primaryText

@@ -109,6 +109,12 @@ Rectangle {
             toast.severity = LogosNotice.Error
         }
 
+        // The points account was found by searching the wallet (a restored one): said briefly.
+        function showFoundAgain() {
+            toast.severity = LogosNotice.Success
+            toast.show(qsTr("Your points account was found again"), qsTr("Its points and referrals are back."))
+        }
+
         function canRequest() {
             return typeof logos !== "undefined" && typeof logos.request === "function"
         }
@@ -188,6 +194,8 @@ Rectangle {
             payoutPoints: d.backend ? d.backend.payoutPoints : ""
             cashOutError: d.backend ? d.backend.cashOutError : ""
             nodeLeftCore: d.backend ? d.backend.nodeLeftCore : false
+            receiptSearch: d.backend ? d.backend.receiptSearch : UplinkUi.SearchIdle
+            receiptsFound: d.backend ? d.backend.receiptsFound : 0
             historyState: d.backend ? d.backend.historyState : UplinkUi.HistoryComplete
             historyMissingEpochs: d.backend ? d.backend.historyMissingEpochs : 0
             historyPointsWaiting: d.backend ? d.backend.historyPointsWaiting : "0"
@@ -197,6 +205,7 @@ Rectangle {
             programIssue: d.backend ? d.backend.programIssue : UplinkUi.ProgramUnknown
             programDetail: d.backend ? d.backend.programIssueDetail : ""
             onCashOutRequested: d.backend.cashOutAll()
+            onFindCashOutsRequested: d.backend.findPastCashOuts()
             onOpenExplorerRequested: d.launchApp("lez_explorer_ui", qsTr("LEZ Explorer"),
                 qsTr("Open it from the Basecamp sidebar and start its indexer, then come back."))
             onAutoClaimToggled: function (on) { d.backend.changeAutoClaim(on) }
@@ -249,6 +258,12 @@ Rectangle {
                     pages.currentIndex = d.welcomePage
                 break
             }
+        }
+
+        function onAccountFoundAgainChanged() {
+            // Onboarding says so itself, on its Done step.
+            if (d.backend.accountFoundAgain && pages.currentIndex !== d.onboardingPage)
+                d.showFoundAgain()
         }
 
         function onLastErrorChanged() {
