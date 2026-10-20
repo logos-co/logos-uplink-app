@@ -21,6 +21,10 @@ Item {
     property string cashedOut: "0"   // every receipt so far
     property var receipts: []
     property int nodeIssue: UplinkUi.ModuleUnavailable
+    property bool nodeLeftCore: false
+    property int historyState: UplinkUi.HistoryComplete
+    property int historyMissingEpochs: 0
+    property string historyPointsWaiting: "0"
     property string nodeId: ""
     property bool nodeActive: false
     property var myActivity: []
@@ -43,6 +47,7 @@ Item {
     signal autoClaimToggled(bool on)
     signal cashOutFinished()
     signal labelEdited(string node, string label)
+    signal openExplorerRequested()
 
     // The claim dialog, where a payout code got again appears.
     function showClaim() {
@@ -54,6 +59,7 @@ Item {
     onNodeIdChanged: d.rebuild()
     onNodeActiveChanged: d.rebuild()
     onNodeIssueChanged: d.rebuild()
+    onNodeLeftCoreChanged: d.rebuild()
     Component.onCompleted: d.rebuild()
 
     QtObject {
@@ -102,7 +108,7 @@ Item {
                 sub: shortId(root.nodeId), joined: "", marks: (root.myActivity || []).join(","),
                 statusText: me.text, statusColor: me.color,
                 // Only epochs your own node was active in pay for your referrals.
-                note: d.notCore ? qsTr("not a Blend core node")
+                note: d.notCore ? (root.nodeLeftCore ? qsTr("dropped out of Blend core") : qsTr("not a Blend core node"))
                       : root.nodeActive ? qsTr("earning this epoch") : qsTr("not earning this epoch"),
             })
             for (const r of (root.referrals || [])) {
@@ -265,12 +271,53 @@ Item {
                     message: qsTr("Your node is not running — referral points are paused until it is back.")
                 }
 
+                // Earlier epochs the module hasn't got: their points come once the indexer has them.
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: root.historyState !== UplinkUi.HistoryComplete
+                    spacing: Theme.spacing.medium
+
+                    LogosNotice {
+                        objectName: "uplink.historyBanner"
+                        Layout.fillWidth: true
+                        shown: true
+                        severity: root.historyState === UplinkUi.HistorySyncing ? LogosNotice.Info : LogosNotice.Warning
+                        readonly property string epochs: root.historyMissingEpochs === 1
+                            ? qsTr("1 earlier epoch") : qsTr("%1 earlier epochs").arg(root.historyMissingEpochs)
+                        // A floor; 0 says nothing (no active set of theirs is known yet).
+                        readonly property string waiting: root.historyPointsWaiting === "0" ? ""
+                            : " " + qsTr("At least %1 points are waiting.").arg(root.historyPointsWaiting)
+                        message: {
+                            switch (root.historyState) {
+                            case UplinkUi.HistorySyncing:
+                                return qsTr("Catching up on %1 from the LEZ indexer; their points will be claimable once it has them.").arg(epochs) + waiting
+                            case UplinkUi.HistoryNeeded:
+                                return qsTr("%1 can't be counted yet: Uplink needs the LEZ indexer to read them. Start it in the LEZ Explorer app.").arg(epochs) + waiting
+                            case UplinkUi.HistoryMissing:
+                                return qsTr("The LEZ indexer has caught up but doesn't have %1 yet, so they can't be counted. Check it in the LEZ Explorer app.").arg(epochs) + waiting
+                            default:
+                                return qsTr("The LEZ indexer isn't working, so %1 can't be counted yet. Check it in the LEZ Explorer app.").arg(epochs) + waiting
+                            }
+                        }
+                    }
+                    LogosButton {
+                        objectName: "uplink.openExplorerButton"
+                        Layout.alignment: Qt.AlignVCenter
+                        visible: root.historyState !== UplinkUi.HistorySyncing
+                        variant: LogosButton.Variant.Primary
+                        text: qsTr("Open LEZ Explorer")
+                        onClicked: root.openExplorerRequested()
+                    }
+                }
+
                 LogosNotice {
                     objectName: "uplink.notCoreBanner"
                     Layout.fillWidth: true
                     shown: d.notCore
                     severity: LogosNotice.Warning
-                    message: qsTr("Your node isn't a Blend core node, so it earns no points. Activate Blend core in the Blockchain app.")
+                    message: root.nodeLeftCore
+                        ? qsTr("Your node has dropped out of Blend core, so it isn't earning points. Check it in the Blockchain app.")
+                        : qsTr("Your node isn't a Blend core node, so it earns no points. Activate Blend core in the Blockchain app.")
                 }
 
                 LogosTable {

@@ -80,6 +80,7 @@ private:
     void refreshReferral();
     bool findOwnAccount();
     bool joining() const;
+    void refreshNodeLeftCore();
     void autoClaimIfDue();
     void reconcileOperations();
     bool hasPendingOperation() const;

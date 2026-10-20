@@ -32,7 +32,7 @@ public:
     Result<Registry> registry() override { return registryFails ? Result<Registry>::failure("uplink_module did not answer") : m->registry(); }
     Result<Activity> activity(const QStringList& n, int c) override { return m->activity(n, c); }
     Result<QList<Note>> notes(const QString& p) override { return m->notes(p); }
-    Result<QString> claimable(const QString& p) override { return m->claimable(p); }
+    Result<Claimable> claimable(const QString& p) override { return m->claimable(p); }
     Result<Terms> terms() override { return m->terms(); }
     Result<bool> termsAccepted() override { return m->termsAccepted(); }
     Result<bool> acceptTerms(int v, const QString& h) override { return m->acceptTerms(v, h); }
@@ -258,6 +258,24 @@ LOGOS_TEST(backend_reports_a_node_that_is_not_core) {
     Harness h(node::Issue::NotCore);
     LOGOS_ASSERT_EQ(h.backend->nodeIssue(), int(B::NotCoreNode));
     LOGOS_ASSERT_TRUE(h.enrol());   // joining has no Blend prerequisite
+}
+
+// "Not a Blend core node" read as never having been one when it had only dropped out.
+LOGOS_TEST(backend_tells_a_node_that_dropped_out_of_blend_core_from_one_that_never_joined) {
+    Harness h(node::Issue::NotCore);
+    LOGOS_ASSERT_TRUE(h.enrol());
+    LOGOS_ASSERT_FALSE(h.backend->nodeLeftCore());   // no epoch it was active in
+    h.lez->advanceEpoch();
+    h.lez->advanceEpoch();
+    h.backend->refresh();
+    LOGOS_ASSERT_TRUE(h.backend->myActivity().contains(1));
+    LOGOS_ASSERT_TRUE(h.backend->nodeLeftCore());
+
+    Harness core;   // a core node with the same history never "left"
+    LOGOS_ASSERT_TRUE(core.enrol());
+    core.lez->advanceEpoch();
+    core.backend->refresh();
+    LOGOS_ASSERT_FALSE(core.backend->nodeLeftCore());
 }
 
 LOGOS_TEST(backend_needs_the_terms_accepted_to_join) {
@@ -604,6 +622,35 @@ LOGOS_TEST(backend_cashes_out_into_a_payout_code) {
     h.backend->cashOutAll();   // the same epoch: nothing new
     LOGOS_ASSERT_EQ(h.backend->lastError(), QString("No points to cash out yet."));
     LOGOS_ASSERT_EQ(h.backend->cashOutError(), QString("No points to cash out yet."));
+}
+
+LOGOS_TEST(backend_reports_epochs_waiting_for_the_indexer) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    LOGOS_ASSERT_EQ(h.backend->historyState(), int(B::HistoryComplete));
+    h.lez->setHistoryGap({QStringLiteral("history_needed"), 3, QStringLiteral("4")});
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->historyState(), int(B::HistoryNeeded));
+    LOGOS_ASSERT_EQ(h.backend->historyMissingEpochs(), 3);
+    LOGOS_ASSERT_EQ(h.backend->historyPointsWaiting(), QString("4"));
+    h.lez->setHistoryGap({QStringLiteral("history_syncing"), 2, QStringLiteral("1")});
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->historyState(), int(B::HistorySyncing));
+    // Caught up without them (another chain), failing, or a code from a newer module.
+    h.lez->setHistoryGap({QStringLiteral("history_missing"), 3, QStringLiteral("0")});
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->historyState(), int(B::HistoryMissing));
+    LOGOS_ASSERT_EQ(h.backend->historyPointsWaiting(), QString("0"));
+    h.lez->setHistoryGap({QStringLiteral("history_indexer_error"), 3, QStringLiteral("0")});
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->historyState(), int(B::HistoryIndexerError));
+    h.lez->setHistoryGap({QStringLiteral("history_something_new"), 3, QStringLiteral("0")});
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->historyState(), int(B::HistoryIndexerError));
+    h.lez->setHistoryGap({});   // the indexer has them now
+    h.backend->refresh();
+    LOGOS_ASSERT_EQ(h.backend->historyState(), int(B::HistoryComplete));
+    LOGOS_ASSERT_EQ(h.backend->historyMissingEpochs(), 0);
 }
 
 LOGOS_TEST(backend_keeps_the_points_account_while_the_wallet_is_busy) {

@@ -116,10 +116,10 @@ LOGOS_TEST(claim_pays_each_active_child_once_per_epoch) {
     MockReferralService s;
     const QString p = enrol(s);
     s.advanceEpoch();   // epoch 2: children 0 and 2 active, plus 1 point of credit
-    LOGOS_ASSERT_EQ(s.claimable(p).value, QString("3"));
+    LOGOS_ASSERT_EQ(s.claimable(p).value.points, QString("3"));
     LOGOS_ASSERT_EQ(claim(s, p), QString());
     LOGOS_ASSERT_EQ(s.participant(p).value.rewardBalance, QString("3"));
-    LOGOS_ASSERT_EQ(s.claimable(p).value, QString("0"));
+    LOGOS_ASSERT_EQ(s.claimable(p).value.points, QString("0"));
     LOGOS_ASSERT_TRUE(s.claim("again", p).error.contains("nothing to claim"));
 }
 
@@ -128,10 +128,10 @@ LOGOS_TEST(epochs_accrue_until_claimed) {
     const QString p = enrol(s);
     s.advanceEpoch();      // epoch 2: children 0, 2 active, +1 credit
     s.advanceEpoch();      // epoch 3: children 1, 2 active
-    LOGOS_ASSERT_EQ(s.claimable(p).value, QString("5"));
+    LOGOS_ASSERT_EQ(s.claimable(p).value.points, QString("5"));
     claim(s, p);
     LOGOS_ASSERT_EQ(s.participant(p).value.rewardBalance, QString("5"));
-    LOGOS_ASSERT_EQ(s.claimable(p).value, QString("0"));
+    LOGOS_ASSERT_EQ(s.claimable(p).value.points, QString("0"));
 }
 
 // An epoch pays only if your own node was active in it. The mock's own node is off every fourth epoch.
@@ -141,7 +141,7 @@ LOGOS_TEST(an_epoch_your_node_missed_pays_nothing) {
     s.advanceEpoch();   // 2: children 0, 2 active, own node active, +1 credit
     s.advanceEpoch();   // 3: children 1, 2 active, own node active
     s.advanceEpoch();   // 4: children 0, 1 active, own node INACTIVE, +1 credit
-    LOGOS_ASSERT_EQ(s.claimable(p).value, QString("6"));   // 2 + 2 + 0, plus 2 credits
+    LOGOS_ASSERT_EQ(s.claimable(p).value.points, QString("6"));   // 2 + 2 + 0, plus 2 credits
     LOGOS_ASSERT_EQ(claim(s, p), QString());
     LOGOS_ASSERT_EQ(s.participant(p).value.rewardBalance, QString("6"));
 }

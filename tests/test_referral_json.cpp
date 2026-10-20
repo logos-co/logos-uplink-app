@@ -3,6 +3,7 @@
 #include <logos_test.h>
 
 #include "lez/ReferralJson.h"
+#include "lez/Timeouts.h"
 
 using namespace referral;
 
@@ -63,6 +64,25 @@ LOGOS_TEST(a_status_check_that_could_not_be_made_stays_pending) {
                     QString("AccountNotFound"));
     LOGOS_ASSERT_FALSE(referral_json::operationCheck(
         R"({"ok":false,"code":"unknown_reference","error":"no operation with this reference"})").ok());
+}
+
+// A timeout of 0 or less is the protocol's 20 s default: sends used to give up while proving.
+LOGOS_TEST(sends_wait_longer_than_the_default_call_timeout) {
+    LOGOS_ASSERT_GT(referral::kSendTimeoutMs, 20000);
+}
+
+LOGOS_TEST(claimable_reads_points_and_the_epochs_not_counted_yet) {
+    const auto complete = referral_json::claimable(R"({"ok":true,"points":"7","batches":[],"history":null})");
+    LOGOS_ASSERT_EQ(complete.value.points, QString("7"));
+    LOGOS_ASSERT_EQ(complete.value.history.code, QString());
+    LOGOS_ASSERT_EQ(complete.value.history.missingEpochs, 0);
+    const auto gap = referral_json::claimable(
+        R"({"ok":true,"points":"2","history":{"code":"history_needed","missingEpochs":[4,5,6],"pointsWaiting":"9",)"
+        R"("indexer":{"state":"NotRunning","indexedBlock":null,"error":null}}})");
+    LOGOS_ASSERT_EQ(gap.value.points, QString("2"));
+    LOGOS_ASSERT_EQ(gap.value.history.code, QString("history_needed"));
+    LOGOS_ASSERT_EQ(gap.value.history.missingEpochs, 3);
+    LOGOS_ASSERT_EQ(gap.value.history.pointsWaiting, QString("9"));
 }
 
 LOGOS_TEST(auto_claim_answers_a_reference_or_nothing) {

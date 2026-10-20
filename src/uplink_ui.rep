@@ -149,8 +149,22 @@ class UplinkUi
     PROP(int activeCount READONLY)
     PROP(QVariantList myActivity READONLY)    // last 16 published epochs, oldest first: 1 active, 0 not, -1 unknown
     PROP(bool nodeActive READONLY)            // your own node is in this epoch's active set; only such epochs pay
+    PROP(bool nodeLeftCore READONLY)          // not a Blend core node now, but active in one of myActivity's epochs
     PROP(QVariantList referrals READONLY)     // [{node, label, activeThisEpoch, lastPaidEpoch, pending, activity, joinedEpoch, joinedAgo}]; activity as myActivity, -2 before it joined
     PROP(QString claimablePoints READONLY)
+    // Published epochs not counted yet (their active sets are in neither the module's record
+    // nor the indexer), by the indexer's state: catching up, not running, caught up without
+    // them (following another chain), or failing. historyPointsWaiting is what they pay at least.
+    ENUM HistoryState {
+        HistoryComplete     = 0,
+        HistorySyncing      = 1,
+        HistoryNeeded       = 2,
+        HistoryMissing      = 3,
+        HistoryIndexerError = 4
+    }
+    PROP(int historyState READONLY)
+    PROP(int historyMissingEpochs READONLY)
+    PROP(QString historyPointsWaiting READONLY)
     PROP(QString rewardBalance READONLY)      // collected, not yet cashed out
     PROP(QString totalPoints READONLY)        // rewardBalance + claimablePoints
     PROP(QString cashedOutPoints READONLY)    // every receipt so far

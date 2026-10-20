@@ -105,13 +105,19 @@ QVariantMap ownMetadata()
 UplinkBackend::UplinkBackend(QObject* parent)
     : UplinkUiSimpleSource(parent)
 {
-    // real (default) | mock | mock:no_wallet | mock:no_program
+    // real (default) | mock | mock:no_wallet | mock:no_program | mock:history_<syncing|needed|missing|indexer_error>
     const QString lez = backendFor("UPLINK_LEZ");
     const bool mock = lez.section(':', 0, 0) == QLatin1String("mock");
     if (mock) {
-        auto service = std::make_unique<MockReferralService>(lez.section(':', 1) != QLatin1String("no_wallet"));
-        if (lez.section(':', 1) == QLatin1String("no_program"))
+        const QString issue = lez.section(':', 1);
+        auto service = std::make_unique<MockReferralService>(issue != QLatin1String("no_wallet"));
+        if (issue == QLatin1String("no_program"))
             service->configure({});
+        // mock:history_<code>: claimable() reports 3 epochs missing with that code. 0 points for
+        // history_missing, so its UI test sees the banner without "At least N points".
+        if (issue.startsWith(QLatin1String("history_")))
+            service->setHistoryGap({issue, 3, issue == QLatin1String("history_missing") ? QStringLiteral("0")
+                                                                                        : QStringLiteral("4")});
         m_referral = std::move(service);
     } else
         m_referral = std::make_unique<LezReferralService>(*this);
@@ -163,6 +169,9 @@ void UplinkBackend::init()
     setPayoutFormUrl(kPayoutFormUrl);
     setInvitationCheck(InvitationEmpty);
     setClaimablePoints(QStringLiteral("0"));
+    setHistoryState(HistoryComplete);
+    setHistoryMissingEpochs(0);
+    setHistoryPointsWaiting(QStringLiteral("0"));
     setRewardBalance(QStringLiteral("0"));
     setTotalPoints(QStringLiteral("0"));
     setCashedOutPoints(QStringLiteral("0"));
@@ -324,6 +333,14 @@ void UplinkBackend::acceptTerms()
     setTermsAccepted(accepted.value);
 }
 
+// Active in a published epoch means it was in that epoch's Blend core membership.
+void UplinkBackend::refreshNodeLeftCore()
+{
+    const QVariantList marks = myActivity();
+    setNodeLeftCore(nodeIssue() == NotCoreNode
+                    && std::any_of(marks.cbegin(), marks.cend(), [](const QVariant& m) { return m.toInt() == 1; }));
+}
+
 bool UplinkBackend::joining() const
 {
     return enrolState() == Invited || enrolState() == AwaitingSignature || enrolState() == Enrolling
@@ -392,8 +409,12 @@ void UplinkBackend::forgetIdentity()
     setInvitation({});
     setNodeActive(false);
     setMyActivity({});
+    setNodeLeftCore(false);
     setReferrals({});
     setClaimablePoints(QStringLiteral("0"));
+    setHistoryState(HistoryComplete);
+    setHistoryMissingEpochs(0);
+    setHistoryPointsWaiting(QStringLiteral("0"));
     setRewardBalance(QStringLiteral("0"));
     setTotalPoints(QStringLiteral("0"));
     setCashedOutPoints(QStringLiteral("0"));
@@ -415,6 +436,7 @@ void UplinkBackend::refreshNode()
 {
     const node::Status s = m_node->status();
     setNodeIssue(toRep(s.issue));
+    refreshNodeLeftCore();
     setNodeIssueDetail(s.detail);
     setNodeMode(s.mode);
     setNodeCore(s.core);
@@ -531,6 +553,7 @@ void UplinkBackend::refreshReferral()
         return list;
     };
     setMyActivity(marks(p.node));
+    refreshNodeLeftCore();
 
     QVariantList referrals;
     auto addReferral = [&](const QString& node, quint32 lastPaid, bool pending) {
@@ -554,8 +577,20 @@ void UplinkBackend::refreshReferral()
     setReferrals(referrals);
 
     const auto claimable = m_referral->claimable(participantId());
-    if (claimable.ok())
-        setClaimablePoints(points::normalized(claimable.value));
+    if (claimable.ok()) {
+        setClaimablePoints(points::normalized(claimable.value.points));
+        const referral::HistoryGap& gap = claimable.value.history;
+        static const QMap<QString, int> states = {
+            {QStringLiteral("history_syncing"), HistorySyncing},
+            {QStringLiteral("history_needed"), HistoryNeeded},
+            {QStringLiteral("history_missing"), HistoryMissing},
+            {QStringLiteral("history_indexer_error"), HistoryIndexerError},
+        };
+        // A code this version doesn't know still means epochs are missing.
+        setHistoryState(gap.code.isEmpty() ? HistoryComplete : states.value(gap.code, HistoryIndexerError));
+        setHistoryMissingEpochs(gap.missingEpochs);
+        setHistoryPointsWaiting(points::normalized(gap.pointsWaiting));
+    }
     setRewardBalance(points::normalized(p.rewardBalance));
     setTotalPoints(points::add(rewardBalance(), claimablePoints()));
 
@@ -939,7 +974,7 @@ void UplinkBackend::startCollecting()
         failCashOut(claimable.error);
         return;
     }
-    if (points::isZero(claimable.value)) {
+    if (points::isZero(claimable.value.points)) {
         startCashOut();
         return;
     }

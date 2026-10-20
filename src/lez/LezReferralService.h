@@ -21,7 +21,7 @@ public:
     Result<referral::Registry> registry() override;
     Result<referral::Activity> activity(const QStringList& nodes, int count) override;
     Result<QList<referral::Note>> notes(const QString& participant) override;
-    Result<QString> claimable(const QString& participant) override;
+    Result<referral::Claimable> claimable(const QString& participant) override;
     Result<referral::Terms> terms() override;
     Result<bool> termsAccepted() override;
     Result<bool> acceptTerms(int version, const QString& sha256) override;

@@ -1,6 +1,7 @@
 #include "lez/LezReferralService.h"
 
 #include "lez/ReferralJson.h"
+#include "lez/Timeouts.h"
 
 #include <QDebug>
 
@@ -19,9 +20,7 @@ Result<T> notConnected(const char* module)
     return Result<T>::failure(QStringLiteral("%1 is not connected").arg(QLatin1String(module)));
 }
 
-// Proving a private transaction takes minutes without RISC0_DEV_MODE. There is no "wait forever":
-// <= 0 means the 20 s default. 30 min, uplink_module's own bound on lez_core.
-const Timeout kSendTimeout(30 * 60 * 1000);
+const Timeout kSendTimeout(referral::kSendTimeoutMs);
 
 // The module's reply read by `parse`, or the call's own error (a timeout, the module gone).
 template <typename T>
@@ -122,10 +121,10 @@ Result<QList<Note>> LezReferralService::notes(const QString& participant)
     return referral_json::notes(json);
 }
 
-Result<QString> LezReferralService::claimable(const QString& participant)
+Result<Claimable> LezReferralService::claimable(const QString& participant)
 {
-    REFERRAL(QString, claimable(participant));
-    return referral_json::field(json, "points");
+    REFERRAL(Claimable, claimable(participant));
+    return referral_json::claimable(json);
 }
 
 Result<Terms> LezReferralService::terms()

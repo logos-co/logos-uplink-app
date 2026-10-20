@@ -187,12 +187,18 @@ Rectangle {
             payoutCode: d.backend ? d.backend.payoutCode : ""
             payoutPoints: d.backend ? d.backend.payoutPoints : ""
             cashOutError: d.backend ? d.backend.cashOutError : ""
+            nodeLeftCore: d.backend ? d.backend.nodeLeftCore : false
+            historyState: d.backend ? d.backend.historyState : UplinkUi.HistoryComplete
+            historyMissingEpochs: d.backend ? d.backend.historyMissingEpochs : 0
+            historyPointsWaiting: d.backend ? d.backend.historyPointsWaiting : "0"
             payoutFormUrl: d.backend ? d.backend.payoutFormUrl : ""
             termsSections: d.backend ? d.backend.termsSections : []
             autoClaim: d.backend ? d.backend.autoClaim : true
             programIssue: d.backend ? d.backend.programIssue : UplinkUi.ProgramUnknown
             programDetail: d.backend ? d.backend.programIssueDetail : ""
             onCashOutRequested: d.backend.cashOutAll()
+            onOpenExplorerRequested: d.launchApp("lez_explorer_ui", qsTr("LEZ Explorer"),
+                qsTr("Open it from the Basecamp sidebar and start its indexer, then come back."))
             onAutoClaimToggled: function (on) { d.backend.changeAutoClaim(on) }
             onPayoutCodeRequested: function (index) {
                 d.backend.payoutCodeFor(index)
