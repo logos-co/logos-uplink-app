@@ -36,6 +36,10 @@ const QString kPayoutFormUrl = QStringLiteral("https://xalisher.github.io/lx-pre
 
 // Names the points account in the user's LEZ wallet; also how Uplink finds it again.
 const QString kIdentityLabel = QStringLiteral("Uplink points account");
+// Cash-outs and payout codes need the account's node to sign or share its receipt key.
+const QString kOtherNodesAccount = QStringLiteral(
+    "This points account belongs to another node, which signs its cash-outs and payout codes. "
+    "Use the Blockchain app with that node.");
 
 QString newReference()
 {
@@ -133,8 +137,13 @@ UplinkBackend::UplinkBackend(QObject* parent)
 
     // real (default) | mock | mock:<issue> | devnet:<node API URL> (UPLINK_NODE_ID: its provider_id)
     const QString node = backendFor("UPLINK_NODE");
-    if (node.section(':', 0, 0) == QLatin1String("mock"))
-        m_node = std::make_unique<MockNodeService>(MockNodeService::issueFromName(node.section(':', 1)));
+    if (node.section(':', 0, 0) == QLatin1String("mock")) {
+        auto mock = std::make_unique<MockNodeService>(MockNodeService::issueFromName(node.section(':', 1)));
+        // mock:other_node: a node other than the one the mock's accounts join with.
+        if (node.section(':', 1) == QLatin1String("other_node"))
+            mock->setRunningNodeId(QString(64, QLatin1Char('e')));
+        m_node = std::move(mock);
+    }
     else if (node.startsWith(QLatin1String("devnet:")))
         m_node = std::make_unique<DevnetNodeService>(QUrl(node.mid(7)), qEnvironmentVariable("UPLINK_NODE_ID"));
     else
@@ -424,6 +433,8 @@ void UplinkBackend::forgetIdentity()
     setNodeActive(false);
     setMyActivity({});
     setNodeLeftCore(false);
+    setAccountOnOtherNode(false);
+    setAccountNodeId({});
     m_findingCashOuts = false;
     setReceiptSearch(SearchIdle);
     setReceiptsFound(0);
@@ -533,6 +544,8 @@ void UplinkBackend::refreshReferral()
         return;   // not registered yet
     setFindingAccount(false);
     const referral::Participant& p = participant.value;
+    setAccountNodeId(p.node.toLower());
+    setAccountOnOtherNode(!nodeId().isEmpty() && p.node.compare(nodeId(), Qt::CaseInsensitive) != 0);
     if (enrolState() == EnrolSent)
         qInfo() << "Uplink: joined; the registration settled";
     setEnrolState(Enrolled);
@@ -986,6 +999,10 @@ void UplinkBackend::cashOutAll()
     if (enrolState() != Enrolled || cashOutState() != CashOutIdle)
         return;
     setCashOutError({});
+    if (accountOnOtherNode()) {
+        failCashOut(kOtherNodesAccount);
+        return;
+    }
     if (points::isZero(claimablePoints()) && points::isZero(rewardBalance())) {
         failCashOut(QStringLiteral("No points to cash out yet."));
         return;
@@ -1081,6 +1098,10 @@ void UplinkBackend::payoutCodeFor(int receiptIndex)
         return;
     setLastError({});
     setCashOutError({});
+    if (accountOnOtherNode()) {
+        failCashOut(kOtherNodesAccount);
+        return;
+    }
     setPayoutCode({});
     preparePayoutCode(quint64(receiptIndex));
 }
@@ -1123,6 +1144,10 @@ void UplinkBackend::findPastCashOuts()
         return;
     setCashOutError({});
     setReceiptsFound(0);
+    if (accountOnOtherNode()) {
+        stopFindingCashOuts(kOtherNodesAccount);
+        return;
+    }
     m_findingCashOuts = true;
     setReceiptSearch(SearchAwaitingKey);
     askNodeApp(QStringLiteral("node.referral_receipt_secret"), {{QStringLiteral("purpose"), QStringLiteral("find_cash_outs")}});

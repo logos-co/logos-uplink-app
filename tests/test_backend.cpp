@@ -105,8 +105,10 @@ struct Harness {
             nodeApp = &MockNodeService::answerRequest;
         auto shared = std::make_unique<SharedReferral>(lez);
         referral = shared.get();
-        backend = std::make_unique<UplinkBackend>(std::move(shared),
-                                                  std::make_unique<MockNodeService>(issue), data.path(),
+        auto node = std::make_unique<MockNodeService>(issue);
+        if (!runningNode.isEmpty())
+            node->setRunningNodeId(runningNode);
+        backend = std::make_unique<UplinkBackend>(std::move(shared), std::move(node), data.path(),
                                                   std::move(nodeApp));
         backend->refresh();
     }
@@ -158,6 +160,7 @@ struct Harness {
     QTemporaryDir data;
     std::shared_ptr<MockReferralService> lez;
     SharedReferral* referral = nullptr;   // owned by backend
+    QString runningNode;                  // "" = the mock's own node, the one its accounts join with
     NodeApp app;
     std::unique_ptr<UplinkBackend> backend;
 };
@@ -551,6 +554,42 @@ LOGOS_TEST(backend_explains_a_node_that_joined_from_another_wallet_when_it_cant_
     h.backend->enrol();
     LOGOS_ASSERT_TRUE(h.backend->lastError().contains("isn't in this wallet"));
     LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::IdentityCreated));
+}
+
+// The wallet's account joined with another node than the one running (a wallet moved to another
+// machine, or the Blockchain app on another config): its activity and points are the other
+// node's, the running one earns nothing for it, and only the other can sign its cash-outs.
+LOGOS_TEST(backend_warns_when_the_points_account_belongs_to_another_node) {
+    Harness h;
+    LOGOS_ASSERT_TRUE(h.enrol());
+    LOGOS_ASSERT_FALSE(h.backend->accountOnOtherNode());
+    h.runningNode = QString(64, QLatin1Char('e'));
+    h.start();
+    LOGOS_ASSERT_EQ(h.backend->enrolState(), int(B::Enrolled));
+    LOGOS_ASSERT_TRUE(h.backend->accountOnOtherNode());
+    LOGOS_ASSERT_EQ(h.backend->accountNodeId(), MockNodeService::nodeId().toLower());
+
+    // Claiming needs no node: the account's points are still collected.
+    h.lez->advanceEpoch();
+    h.backend->refresh();
+    h.backend->refresh();
+    LOGOS_ASSERT_NE(h.backend->rewardBalance(), QString("0"));
+
+    // What the account's node signs is refused at once, not after the user approves.
+    h.backend->cashOutAll();
+    LOGOS_ASSERT_TRUE(h.backend->cashOutError().contains("another node"));
+    LOGOS_ASSERT_EQ(h.backend->cashOutState(), int(B::CashOutIdle));
+    LOGOS_ASSERT_EQ(h.backend->signRequest().size(), 0);
+    h.backend->findPastCashOuts();
+    LOGOS_ASSERT_TRUE(h.backend->cashOutError().contains("another node"));
+    LOGOS_ASSERT_EQ(h.backend->receiptSearch(), int(B::SearchIdle));
+}
+
+LOGOS_TEST(backend_says_nothing_of_another_node_when_it_cannot_tell) {
+    Harness h(node::Issue::NodeIdUnavailable);
+    LOGOS_ASSERT_TRUE(h.enrol());
+    LOGOS_ASSERT_FALSE(h.backend->accountOnOtherNode());
+    LOGOS_ASSERT_NE(h.backend->accountNodeId(), QString());
 }
 
 LOGOS_TEST(backend_says_when_the_node_joined_from_another_wallet) {

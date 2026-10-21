@@ -4,8 +4,8 @@
 
 class LogosUiPluginContext;
 
-// NodeService over blockchain_module. The provider_id waits on
-// logos-blockchain-module#108 (blend_status).
+// NodeService over blockchain_module. The node's id (provider_id) comes from read_accounts with
+// no path, which reads the config the running node was started with.
 class BlockchainNodeService : public node::NodeService {
 public:
     explicit BlockchainNodeService(LogosUiPluginContext& context);
